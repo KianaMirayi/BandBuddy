@@ -1,7 +1,7 @@
 import { dbToGain, type TrackState } from '@shared/domain.js'
 
 export interface MixFilterOptions {
-  tracks: Array<{ inputIndex: number; state: TrackState }>
+  tracks: Array<{ inputIndex: number; state: TrackState; preprocessed?: boolean }>
   takes?: Array<{
     inputIndex: number
     gainDb: number
@@ -35,13 +35,13 @@ export function buildMixFilter(options: MixFilterOptions): string {
   if (options.tracks.length === 0 && !options.takes?.length) throw new Error('NO_AUDIBLE_TRACKS')
   const outputs: string[] = []
   const filters: string[] = []
-  for (const { inputIndex, state } of options.tracks) {
+  for (const { inputIndex, state, preprocessed } of options.tracks) {
     const chain: string[] = ['aresample=44100', 'aformat=sample_fmts=fltp:channel_layouts=stereo']
-    if (options.loopStartMs !== null && options.loopEndMs !== null) {
+    if (!preprocessed && options.loopStartMs !== null && options.loopEndMs !== null) {
       chain.push(`atrim=start=${(options.loopStartMs / 1000).toFixed(3)}:end=${(options.loopEndMs / 1000).toFixed(3)}`, 'asetpts=PTS-STARTPTS')
     }
-    chain.push(`volume=${dbToGain(state.gainDb).toFixed(8)}`)
-    if (options.playbackRate !== null && Math.abs(options.playbackRate - 1) > 0.0001) chain.push(...buildAtempoChain(options.playbackRate))
+    if (!preprocessed) chain.push(`volume=${dbToGain(state.gainDb).toFixed(8)}`)
+    if (!preprocessed && options.playbackRate !== null && Math.abs(options.playbackRate - 1) > 0.0001) chain.push(...buildAtempoChain(options.playbackRate))
     const label = `t${inputIndex}`
     filters.push(`[${inputIndex}:a]${chain.join(',')}[${label}]`)
     outputs.push(`[${label}]`)

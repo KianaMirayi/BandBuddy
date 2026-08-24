@@ -2,6 +2,8 @@ import { z } from 'zod'
 import {
   METRONOME_OFFSET_MAX_MS,
   METRONOME_OFFSET_MIN_MS,
+  PITCH_SEMITONES_MAX,
+  PITCH_SEMITONES_MIN,
   PLAYBACK_RATE_MAX,
   PLAYBACK_RATE_MIN,
   STEM_ORDER,
@@ -61,6 +63,7 @@ export const updateSongSchema = z.object({
     bpm: z.number().min(20).max(400).nullable().optional(),
     beatOffsetMs: z.number().min(METRONOME_OFFSET_MIN_MS).max(METRONOME_OFFSET_MAX_MS).optional(),
     musicalKey: z.string().trim().max(16).nullable().optional(),
+    musicalKeySource: z.enum(['detected', 'manual']).nullable().optional(),
     timeSignature: z.string().trim().regex(/^\d{1,2}\/\d{1,2}$/).nullable().optional()
   })
 })
@@ -78,6 +81,7 @@ export const practiceStateSchema = z.object({
   songId: z.string().uuid(),
   positionMs: z.number().nonnegative(),
   playbackRate: z.number().min(PLAYBACK_RATE_MIN).max(PLAYBACK_RATE_MAX),
+  pitchSemitones: z.number().int().min(PITCH_SEMITONES_MIN).max(PITCH_SEMITONES_MAX),
   masterGainDb: z.number().min(-60).max(6),
   metronomeEnabled: z.boolean(),
   metronomeBpm: z.number().min(20).max(400),
@@ -111,6 +115,8 @@ export const exportRequestSchema = z.object({
   outputPath: z.string().min(1).optional(),
   applyPlaybackRate: z.boolean(),
   playbackRate: z.number().min(PLAYBACK_RATE_MIN).max(PLAYBACK_RATE_MAX),
+  applyPitchShift: z.boolean().default(false),
+  pitchSemitones: z.number().int().min(PITCH_SEMITONES_MIN).max(PITCH_SEMITONES_MAX).default(0),
   applyLoopRange: z.boolean(),
   loopStartMs: z.number().nonnegative().nullable(),
   loopEndMs: z.number().nonnegative().nullable(),
@@ -150,6 +156,7 @@ export const appSettingsSchema = z.object({
   libraryRoot: z.string().min(3).max(1000),
   runtimeRoot: z.string().min(3).max(1000),
   modelRoot: z.string().min(3).max(1000),
+  debugMode: z.boolean(),
   preferredDevice: computeDeviceSchema,
   audioOutputDeviceId: z.string().max(500),
   latencyMode: z.enum(['interactive', 'balanced', 'playback']),

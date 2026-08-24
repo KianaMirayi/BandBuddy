@@ -11,6 +11,7 @@ export function installFixtureBridge(): void {
     libraryRoot: 'C:\\Users\\Musician\\BandBuddy\\music',
     runtimeRoot: 'C:\\Users\\Musician\\BandBuddy\\envs',
     modelRoot: 'C:\\Users\\Musician\\BandBuddy\\envs\\models',
+    debugMode: false,
     preferredDevice: 'auto' as const,
     audioOutputDeviceId: '', latencyMode: 'balanced' as const, recordingAudio: createDefaultRecordingAudioSettings(), keepSource: true, closeToTrayWhileWorking: true,
     network: {
@@ -52,11 +53,25 @@ export function installFixtureBridge(): void {
       get: async () => settings,
       chooseDataRoot: async () => ({ dataRoot: 'C:\\Users\\Musician\\BandBuddy', libraryRoot: settings.libraryRoot, runtimeRoot: settings.runtimeRoot, modelRoot: settings.modelRoot }),
       update: async (value) => value,
+      openDebugLog: async () => undefined,
       onChanged: noop
     },
     media: {
       capabilities: async () => ({ ffmpegReady: true, ffmpegVersion: '8.1.2', protocolVersion: 1, supportedInputFormats: ['mp3', 'wav', 'flac', 'm4a', 'aac'], supportedExportFormats: ['wav', 'flac', 'mp3'], internalSampleRate: 44100, internalChannels: 2, internalBitDepth: 24 }),
       detectBpm: async () => ({ bpm: 124, confidence: 0.9, beatOffsetMs: 0, analyzedStem: 'drums' }),
+      detectKey: async () => ({
+        tonic: 'G', mode: 'major', label: 'G major', confidence: 0.62, lowConfidence: true,
+        candidates: [
+          { tonic: 'G', mode: 'major', label: 'G major', confidence: 0.62 },
+          { tonic: 'E', mode: 'minor', label: 'E minor', confidence: 0.28 },
+          { tonic: 'D', mode: 'major', label: 'D major', confidence: 0.07 }
+        ],
+        segments: [
+          { tonic: 'G', mode: 'major', label: 'G major', confidence: 0.7, startMs: 0, endMs: 180_000, possibleModulation: false },
+          { tonic: 'D', mode: 'major', label: 'D major', confidence: 0.55, startMs: 180_000, endMs: 298_000, possibleModulation: true }
+        ],
+        analyzedStems: ['bass', 'guitar', 'piano', 'other', 'vocals'], analyzedDurationMs: 298_000, analyzedAt: new Date().toISOString()
+      }),
       onChanged: noop
     },
     export: { choosePath: async () => null, start: async () => ({ jobId: '99999999-9999-4999-8999-999999999999', outputPaths: [] }) },

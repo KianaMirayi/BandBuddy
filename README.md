@@ -14,7 +14,7 @@
 
 BandBuddy 的核心不是“把人声去掉”，而是让一首歌真正变得**可练**：听清目标声部、放慢困难小节、循环到肌肉记住、跟着准确节拍进入，再在下一次打开时从原来的位置继续。
 
-> [项目主页](https://bandbuddy.lonelyme.cn/) · [下载最新正式版](https://github.com/dourgey/BandBuddy/releases/latest) · [隐私说明](https://bandbuddy.lonelyme.cn/privacy.html) · 当前版本 `1.1.0` · Windows x64 / macOS x64 / Apple Silicon
+> [项目主页](https://bandbuddy.lonelyme.cn/) · [下载最新正式版](https://github.com/dourgey/BandBuddy/releases/latest) · [隐私说明](https://bandbuddy.lonelyme.cn/privacy.html) · 源码版本 `1.2.0` · Windows x64 / macOS x64 / Apple Silicon
 
 ## 从听歌到练琴
 
@@ -22,7 +22,7 @@ BandBuddy 的核心不是“把人声去掉”，而是让一首歌真正变得*
 flowchart LR
   A["导入歌曲或现有分轨"] --> B["本地生成六条音轨"]
   B --> C["听清：Mute / Solo / 增益"]
-  C --> D["拆练：变速 / A–B 循环"]
+  C --> D["拆练：变速 / 升降调 / A–B 循环"]
   D --> E["练准：BPM / 节拍器 / 预备拍"]
   E --> F["录下：多轨 Take / 整场排练"]
   F --> G["自动保存，下次继续"]
@@ -54,12 +54,14 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 
 - 在波形上选择区间，或使用 A / B 按钮设置循环；循环开关和边界会随歌曲保存。
 - 提供 `0.5× / 0.8× / 1.0× / 1.2× / 1.5×` 快捷速度，以及 `0.20×–4.00×` 无级变速，播放时保持音高。
+- 使用 Signalsmith Stretch 实时升降调，支持 `-12–+12` 半音、每次 1 个半音；除鼓轨外的分轨统一变调，鼓轨自动做延迟补偿以保持同步。
 - 六轨由同一主时钟校正，变速、跳转和循环时仍保持同步。
-- 播放位置、速度、循环、每轨 Mute/Solo/增益、缩放与滚动视图都会自动保存。
+- 播放位置、速度、升降调、循环、每轨 Mute/Solo/增益、缩放与滚动视图都会自动保存。
 
 ### 跟上节拍再进入
 
 - 可优先分析鼓轨自动检测 BPM，也可以手动修改。
+- 可在本机识别歌曲主调与大小调，显示置信度；低置信度时给出前三候选，并按片段提示可能转调的位置。识别结果支持手动纠正，重新分析不会覆盖手动选择。
 - 内置节拍器支持拍点提前/延后微调，并随播放速度同步。
 - 支持关闭、4 拍或 8 拍预备拍，让手和乐器先准备好再进入歌曲。
 
@@ -68,7 +70,7 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 - 在练习室创建多条录音轨，从任意播放位置开始录制；每条轨可保留多个 Take，并独立选择、命名、Mute、Solo 和调节增益。
 - 支持 Windows WASAPI、macOS CoreAudio，以及系统可用时的 ASIO；可以选择输入/输出设备、单声道或立体声通道、采样率与 Buffer，并先做输入电平测试。
 - 预备拍不会写入 Take；可按设备保存对齐偏移，分离输入/输出设备时会做时钟校正并显示 xrun 计数。
-- 导出当前练习混音时，可以把所有启用的录音轨一起混入，并保持录制时的练习速度与位置关系。
+- 导出当前练习混音时，可以把所有启用的录音轨一起混入，并保持录制时的练习速度、调性与位置关系。
 
 ### 编排和录制整场排练
 
@@ -86,12 +88,15 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 - 导入 `MP3 / WAV / FLAC / M4A / AAC`，并兼容用户有权使用的本地 `.ncm` 文件。
 - 搜索歌曲或艺术家，按收藏、处理中、最近练习筛选，并在列表/卡片布局间切换。
 - 后台任务展示分轨、标准化和导出进度；支持取消、重试，以及显存不足后的 CPU 重试。
-- 可编辑标题、艺术家、BPM、调号与拍号；删除的受管歌曲会先进入系统废纸篓 / 回收站。
+- 可从曲库或练习室编辑标题、艺术家、BPM、歌曲调与拍号；歌曲调既可本地识别，也可手动纠正。
+- 启动时会核对已保存的播放与录音设备；设备断开后自动回到当前系统默认值，并保留仍然有效的设备配置。
+- 设置中的 Debug 模式会把 renderer、preload、IPC 与进程异常写入可直接打开的 `debug.log`，代理凭据、令牌和密码会先脱敏。
+- 删除的受管歌曲会先进入系统废纸篓 / 回收站。
 
 ### 带走分轨或当前练习混音
 
 - 分别导出所选标准分轨，或导出应用了 Mute、Solo、每轨增益与主增益的当前混音。
-- 当前混音可选择应用练习速度、只导出 A–B 区间，并在输出前限制峰值避免削波。
+- 导出会自动保留当前 Signalsmith 升降调：所有非鼓轨变调，鼓轨保持原音；当前混音还可选择应用练习速度、只导出 A–B 区间，并在输出前限制峰值避免削波。
 - 支持 `WAV / FLAC`（44.1 kHz、24-bit）和 `MP3`（320 kbps）。
 
 ## 常用快捷键
@@ -108,7 +113,7 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 
 ## 本地优先
 
-- **无需上传音乐**：分轨、波形、BPM 检测、混音与导出全部在本机完成。
+- **无需上传音乐**：分轨、波形、BPM 与歌曲调检测、混音和导出全部在本机完成。
 - **独立运行环境**：应用安装私有 CPython、PyTorch 和 Demucs，不读取系统 Python、PATH 或注册表 Python。
 - **按设备自动回退**：Windows 优先使用可用的 NVIDIA CUDA，macOS 优先使用 Apple MPS；不可用、设备失效或显存不足时可回退 CPU。
 - **可验证的依赖**：uv、FFmpeg 和模型按固定版本下载并校验 SHA-256；代理凭据会从日志中脱敏。
@@ -133,8 +138,8 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 
 前往 [Releases](https://github.com/dourgey/BandBuddy/releases/latest)，按需要下载：
 
-- `BandBuddy-1.1.0-x64.exe`：安装版，可选择安装位置并创建桌面/开始菜单快捷方式。
-- `BandBuddy-1.1.0-x64-portable.exe`：便携版，不写入安装目录。
+- `BandBuddy-1.2.0-x64.exe`：安装版，可选择安装位置并创建桌面/开始菜单快捷方式。
+- `BandBuddy-1.2.0-x64-portable.exe`：便携版，不写入安装目录。
 - `SHA256SUMS.txt`：用于校验下载文件完整性。
 
 开源 CI 在没有 Authenticode 证书时会发布**未签名**构建，Windows SmartScreen 可能显示“未知发布者”。Release 说明会标明该版本是否已签名；如果你不接受未签名程序，可从源码构建，或等待 Microsoft Store / 已签名版本。
@@ -143,8 +148,8 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 
 [Releases](https://github.com/dourgey/BandBuddy/releases/latest) 同时提供 Intel 与 Apple Silicon 原生 `DMG` 和 `ZIP`：
 
-- `BandBuddy-1.1.0-macos-x64.dmg` / `.zip`：Intel Mac。
-- `BandBuddy-1.1.0-macos-arm64.dmg` / `.zip`：Apple Silicon Mac。
+- `BandBuddy-1.2.0-macos-x64.dmg` / `.zip`：Intel Mac。
+- `BandBuddy-1.2.0-macos-arm64.dmg` / `.zip`：Apple Silicon Mac。
 
 当前 macOS 构建尚未使用 Apple Developer ID 签名或公证，Gatekeeper 会提示开发者身份无法验证；请先核对 Release 中对应架构的 SHA-256 文件。
 
@@ -225,7 +230,7 @@ macOS 包必须在对应架构的 Mac 上构建，以便 Electron、`better-sqli
 
 ## 当前边界
 
-`1.1.0` 同时提供 Windows x64、macOS x64 与 macOS arm64 构建。当前不包含账号/云同步、Web 端、实时变调或自动更新；录音时建议使用声卡的硬件直通监听，Piano 分轨仍为实验性功能。欢迎通过 [Issues](https://github.com/dourgey/BandBuddy/issues) 提交可复现的问题和练琴场景建议。
+`1.2.0` 同时提供 Windows x64、macOS x64 与 macOS arm64 构建。当前不包含账号/云同步、Web 端或自动更新；录音时建议使用声卡的硬件直通监听，Piano 分轨仍为实验性功能。欢迎通过 [Issues](https://github.com/dourgey/BandBuddy/issues) 提交可复现的问题和练琴场景建议。
 
 ## 许可与音频权利
 

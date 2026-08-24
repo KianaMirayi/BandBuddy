@@ -45,11 +45,13 @@ const api: BandBuddyApi = {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
     chooseDataRoot: (currentLibraryRoot) => ipcRenderer.invoke(IPC.settingsChooseDataRoot, currentLibraryRoot),
     update: (settings) => ipcRenderer.invoke(IPC.settingsUpdate, settings),
+    openDebugLog: () => ipcRenderer.invoke(IPC.settingsOpenDebugLog),
     onChanged: (callback) => subscribe(IPC.eventSettingsChanged, callback)
   },
   media: {
     capabilities: () => ipcRenderer.invoke(IPC.mediaCapabilities),
     detectBpm: (songId) => ipcRenderer.invoke(IPC.mediaDetectBpm, songId),
+    detectKey: (songId) => ipcRenderer.invoke(IPC.mediaDetectKey, songId),
     onChanged: (callback) => subscribe(IPC.eventMediaChanged, callback)
   },
   export: {

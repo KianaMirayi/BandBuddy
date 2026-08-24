@@ -32,10 +32,14 @@ const pauseBackingPath = path.join(root, 'pause-backing.wav')
 const pauseCapturePath = path.join(root, 'pause-capture.part.wav')
 const longBackingPath = path.join(root, 'long-backing.wav')
 const longCapturePath = path.join(root, 'long-capture.part.wav')
+const pitchInputPath = path.join(root, 'pitch-input.wav')
+const pitchOutputPath = path.join(root, 'pitch-output.wav')
+const pitchDownOutputPath = path.join(root, 'pitch-down-output.wav')
 writeFloatWave(backingPath, 48_000, 2, 4_800)
 writeFloatWave(driftBackingPath, 48_000, 2, 288_000)
 writeFloatWave(pauseBackingPath, 48_000, 2, 96_000)
 writeSparseFloatWave(longBackingPath, 48_000, 2, 48_000 * 60 * 10)
+writeSineFloatWave(pitchInputPath, 48_000, 2, 48_000, 440)
 
 const child = spawn(executable, ['--simulate'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
 const lines = createInterface({ input: child.stdout })
@@ -103,6 +107,34 @@ function waitForExit() {
 }
 
 try {
+  const pitchResult = await runExecutable(executable, ['--pitch', pitchInputPath, pitchOutputPath, '12'])
+  if (pitchResult.code !== 0) throw new Error(`Signalsmith pitch command failed: ${pitchResult.stderr}`)
+  const pitched = readFileSync(pitchOutputPath)
+  if (pitched.length !== 44 + 48_000 * 2 * 4 || pitched.subarray(0, 4).toString('ascii') !== 'RIFF') {
+    throw new Error('Signalsmith pitch command did not preserve the WAV duration')
+  }
+  let risingZeroCrossings = 0
+  for (let frame = 12_001; frame < 36_000; frame += 1) {
+    const previous = pitched.readFloatLE(44 + (frame - 1) * 2 * 4)
+    const current = pitched.readFloatLE(44 + frame * 2 * 4)
+    if (previous <= 0 && current > 0) risingZeroCrossings += 1
+  }
+  if (risingZeroCrossings < 360 || risingZeroCrossings > 520) {
+    throw new Error(`Signalsmith +12 semitone output has ${risingZeroCrossings} rising zero crossings; expected about 440`)
+  }
+  const pitchDownResult = await runExecutable(executable, ['--pitch', pitchInputPath, pitchDownOutputPath, '-12'])
+  if (pitchDownResult.code !== 0) throw new Error(`Signalsmith pitch-down command failed: ${pitchDownResult.stderr}`)
+  const pitchedDown = readFileSync(pitchDownOutputPath)
+  let downZeroCrossings = 0
+  for (let frame = 12_001; frame < 36_000; frame += 1) {
+    const previous = pitchedDown.readFloatLE(44 + (frame - 1) * 2 * 4)
+    const current = pitchedDown.readFloatLE(44 + frame * 2 * 4)
+    if (previous <= 0 && current > 0) downZeroCrossings += 1
+  }
+  if (pitchedDown.length !== pitched.length || downZeroCrossings < 70 || downZeroCrossings > 150) {
+    throw new Error(`Signalsmith -12 semitone output has ${downZeroCrossings} rising zero crossings; expected about 110`)
+  }
+
   const devices = await rpc('devices')
   if (!Array.isArray(devices) || devices.length < 2 || devices[0].inputChannels !== 2) throw new Error('Simulated device enumeration failed')
   const device = devices[0]
@@ -258,6 +290,43 @@ function writeFloatWave(file, sampleRate, channels, frames) {
   buffer.write('data', 36, 'ascii')
   buffer.writeUInt32LE(bytes, 40)
   writeFileSync(file, buffer)
+}
+
+function writeSineFloatWave(file, sampleRate, channels, frames, frequency) {
+  const bytes = frames * channels * 4
+  const buffer = Buffer.alloc(44 + bytes)
+  buffer.write('RIFF', 0, 'ascii')
+  buffer.writeUInt32LE(36 + bytes, 4)
+  buffer.write('WAVE', 8, 'ascii')
+  buffer.write('fmt ', 12, 'ascii')
+  buffer.writeUInt32LE(16, 16)
+  buffer.writeUInt16LE(3, 20)
+  buffer.writeUInt16LE(channels, 22)
+  buffer.writeUInt32LE(sampleRate, 24)
+  buffer.writeUInt32LE(sampleRate * channels * 4, 28)
+  buffer.writeUInt16LE(channels * 4, 32)
+  buffer.writeUInt16LE(32, 34)
+  buffer.write('data', 36, 'ascii')
+  buffer.writeUInt32LE(bytes, 40)
+  for (let frame = 0; frame < frames; frame += 1) {
+    const sample = Math.sin(2 * Math.PI * frequency * frame / sampleRate) * 0.25
+    for (let channel = 0; channel < channels; channel += 1) {
+      buffer.writeFloatLE(sample, 44 + (frame * channels + channel) * 4)
+    }
+  }
+  writeFileSync(file, buffer)
+}
+
+function runExecutable(command, args) {
+  return new Promise((resolve, reject) => {
+    const process = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    let stdout = ''
+    let stderr = ''
+    process.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8') })
+    process.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8') })
+    process.once('error', reject)
+    process.once('exit', (code, signal) => resolve({ code, signal, stdout, stderr }))
+  })
 }
 
 function writeSparseFloatWave(file, sampleRate, channels, frames) {

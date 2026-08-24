@@ -4,6 +4,8 @@ BandBuddy bundles or installs the following third-party software. The applicatio
 
 - Electron 43.1.1 — MIT License — https://github.com/electron/electron
 - React 19.2.7 — MIT License — https://github.com/facebook/react
+- Signalsmith Stretch 1.3.2 — MIT License — https://github.com/Signalsmith-Audio/signalsmith-stretch
+- Signalsmith Linear 0.3.1 — MIT License — https://github.com/Signalsmith-Audio/linear
 - better-sqlite3 / SQLite — MIT / Public Domain — https://github.com/WiseLibs/better-sqlite3
 - FFmpeg n8.1.2 Windows x64 LGPL shared build — LGPL 2.1 or later — https://ffmpeg.org and https://github.com/BtbN/FFmpeg-Builds. The full build license is installed as `resources/bin/FFmpeg-LICENSE.txt`; the build deliberately uses shared libraries.
 - FFmpeg/FFprobe macOS x64 and arm64 static builds from `ffmpeg-static` release `b6.1.1` — GPL 3.0 or later — https://ffmpeg.org and https://github.com/eugeneware/ffmpeg-static. Each macOS package includes the upstream build README and license in its `Resources/bin` directory; corresponding source and build provenance are linked from those files and the upstream release.
@@ -14,6 +16,26 @@ BandBuddy bundles or installs the following third-party software. The applicatio
 - HTDemucs model weights — not included in BandBuddy installers or source distributions. After user confirmation, the application downloads them directly from the official Demucs CDN and verifies them with pinned checksums. The upstream Demucs repository licenses the software under MIT but does not publish a separate explicit license for the pretrained weights. Users must determine whether their intended use of the weights, particularly commercial use or redistribution, is permitted.
 
 The generated dependency lockfile is the authoritative list of JavaScript packages. Redistribution must retain the applicable license texts and attributions.
+
+## Signalsmith Stretch MIT License
+
+Copyright (c) 2022 Geraint Luff / Signalsmith Audio Ltd.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## Signalsmith Linear MIT License
+
+Copyright (c) 2025 Signalsmith Audio
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## Demucs MIT License
 

@@ -30,6 +30,8 @@ function song(id: string, durationMs = 60_000): SongDetail {
     bpm: 120,
     beatOffsetMs: 0,
     musicalKey: null,
+    musicalKeySource: null,
+    keyAnalysis: null,
     timeSignature: '4/4',
     sourceFormat: 'wav',
     sampleRate: 48_000,
@@ -121,6 +123,10 @@ describe('rehearsal timeline', () => {
     const speedChanged = structuredClone(source)
     speedChanged.practice.playbackRate = 1.25
     expect(buildRehearsalTimeline(items, [speedChanged]).fingerprint).not.toBe(baseline)
+
+    const pitchChanged = structuredClone(source)
+    pitchChanged.practice.pitchSemitones = 5
+    expect(buildRehearsalTimeline(items, [pitchChanged]).fingerprint).not.toBe(baseline)
 
     const countInChanged = structuredClone(source)
     countInChanged.practice.countInBeats = 4

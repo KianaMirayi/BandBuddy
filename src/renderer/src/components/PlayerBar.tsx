@@ -1,6 +1,14 @@
-import { ListMusic, LoaderCircle, Pause, Play, Repeat2, RotateCcw, RotateCw, SlidersHorizontal, Volume2, VolumeX } from 'lucide-react'
+import { ArrowUpDown, ListMusic, LoaderCircle, Pause, Play, Repeat2, RotateCcw, RotateCw, SlidersHorizontal, Volume2, VolumeX } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { PLAYBACK_RATE_MAX, PLAYBACK_RATE_MIN, STEM_META, normalizeBeatOffsetMs } from '@shared/domain.js'
+import {
+  PITCH_SEMITONES_MAX,
+  PITCH_SEMITONES_MIN,
+  PITCH_SEMITONES_STEP,
+  PLAYBACK_RATE_MAX,
+  PLAYBACK_RATE_MIN,
+  STEM_META,
+  normalizeBeatOffsetMs
+} from '@shared/domain.js'
 import { usePlayerStore } from '../player-store.js'
 import { Vinyl } from './Vinyl.js'
 import { clamp, formatTime } from '../utils.js'
@@ -9,6 +17,10 @@ const PLAYBACK_RATES = [0.5, 0.8, 1, 1.2, 1.5] as const
 
 function formatBpm(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+function formatPitch(value: number): string {
+  return value === 0 ? '原调' : `${value > 0 ? '+' : '−'}${Math.abs(value)}`
 }
 
 export function PlayerBar({
@@ -106,10 +118,12 @@ function PracticeFooterControls({
   const practice = usePlayerStore((state) => state.practice)!
   const patchPractice = usePlayerStore((state) => state.patchPractice)
   const [speedOpen, setSpeedOpen] = useState(false)
+  const [pitchOpen, setPitchOpen] = useState(false)
   const [metronomeOpen, setMetronomeOpen] = useState(false)
   const [detectingBpm, setDetectingBpm] = useState(false)
   const [bpmMessage, setBpmMessage] = useState('')
   const speedPanel = useRef<HTMLDivElement>(null)
+  const pitchPanel = useRef<HTMLDivElement>(null)
   const metronomePanel = useRef<HTMLDivElement>(null)
   const alignmentSaveTimer = useRef<number | null>(null)
   const progress = songDurationMs > 0 ? Math.min(100, Math.max(0, currentMs / songDurationMs * 100)) : 0
@@ -119,14 +133,15 @@ function PracticeFooterControls({
   const hasLyrics = Boolean(song.lyrics?.cues.length)
 
   useEffect(() => {
-    if (!speedOpen && !metronomeOpen) return
+    if (!speedOpen && !pitchOpen && !metronomeOpen) return
     const close = (event: PointerEvent): void => {
       if (!speedPanel.current?.contains(event.target as Node)) setSpeedOpen(false)
+      if (!pitchPanel.current?.contains(event.target as Node)) setPitchOpen(false)
       if (!metronomePanel.current?.contains(event.target as Node)) setMetronomeOpen(false)
     }
     document.addEventListener('pointerdown', close)
     return () => document.removeEventListener('pointerdown', close)
-  }, [metronomeOpen, speedOpen])
+  }, [metronomeOpen, pitchOpen, speedOpen])
 
   useEffect(() => () => {
     if (alignmentSaveTimer.current !== null) window.clearTimeout(alignmentSaveTimer.current)
@@ -203,7 +218,7 @@ function PracticeFooterControls({
     <div className="footer-option speed-option" ref={speedPanel}>
       <span className="footer-segmented">
         {PLAYBACK_RATES.map((rate) => <button key={rate} className={practice.playbackRate === rate ? 'active' : ''} onClick={() => patchPractice({ playbackRate: rate })}>{rate.toFixed(1)}</button>)}
-        <button className={`continuous-speed ${speedOpen ? 'active' : ''}`} aria-label="无级变速" aria-expanded={speedOpen} onClick={() => { setMetronomeOpen(false); setSpeedOpen(!speedOpen) }}><SlidersHorizontal size={12} /></button>
+        <button className={`continuous-speed ${speedOpen ? 'active' : ''}`} aria-label="无级变速" aria-expanded={speedOpen} onClick={() => { setPitchOpen(false); setMetronomeOpen(false); setSpeedOpen(!speedOpen) }}><SlidersHorizontal size={12} /></button>
       </span>
       {speedOpen && <div className="speed-popover" role="dialog" aria-label="无级变速滑轨">
         <header><span>无级变速</span><b>{practice.playbackRate.toFixed(2)}×</b></header>
@@ -212,8 +227,36 @@ function PracticeFooterControls({
       </div>}
     </div>
 
+    <div className="footer-option pitch-option" ref={pitchPanel}>
+      <button
+        className={`pitch-button ${practice.pitchSemitones !== 0 ? 'is-enabled' : ''} ${pitchOpen ? 'active' : ''}`}
+        aria-label={`升降调：${formatPitch(practice.pitchSemitones)}`}
+        aria-expanded={pitchOpen}
+        onClick={() => { setSpeedOpen(false); setMetronomeOpen(false); setPitchOpen(!pitchOpen) }}
+      ><ArrowUpDown size={12} /><span>{formatPitch(practice.pitchSemitones)}</span></button>
+      {pitchOpen && <div className="pitch-popover" role="dialog" aria-label="升降调设置">
+        <header><span><ArrowUpDown size={14} />升降调</span><b>{formatPitch(practice.pitchSemitones)} <small>半音</small></b></header>
+        <input
+          aria-label="升降调半音数"
+          type="range"
+          min={PITCH_SEMITONES_MIN}
+          max={PITCH_SEMITONES_MAX}
+          step={PITCH_SEMITONES_STEP}
+          value={practice.pitchSemitones}
+          onChange={(event) => patchPractice({ pitchSemitones: Number(event.target.value) })}
+        />
+        <div className="pitch-step-controls">
+          <button disabled={practice.pitchSemitones <= PITCH_SEMITONES_MIN} onClick={() => patchPractice({ pitchSemitones: practice.pitchSemitones - PITCH_SEMITONES_STEP })}>降 1</button>
+          <button disabled={practice.pitchSemitones === 0} onClick={() => patchPractice({ pitchSemitones: 0 })}>原调</button>
+          <button disabled={practice.pitchSemitones >= PITCH_SEMITONES_MAX} onClick={() => patchPractice({ pitchSemitones: practice.pitchSemitones + PITCH_SEMITONES_STEP })}>升 1</button>
+        </div>
+        <footer><span>低八度</span><span>原调</span><span>高八度</span></footer>
+        <p>鼓轨保持原音，其他分轨统一变调</p>
+      </div>}
+    </div>
+
     <div className="footer-option metronome-option" ref={metronomePanel}>
-      <button className={`metronome-icon-button ${practice.metronomeEnabled ? 'is-enabled' : ''} ${metronomeOpen ? 'active' : ''}`} aria-label="节拍器" aria-expanded={metronomeOpen} onClick={() => { setSpeedOpen(false); setMetronomeOpen(!metronomeOpen) }}><MetronomeIcon /></button>
+      <button className={`metronome-icon-button ${practice.metronomeEnabled ? 'is-enabled' : ''} ${metronomeOpen ? 'active' : ''}`} aria-label="节拍器" aria-expanded={metronomeOpen} onClick={() => { setSpeedOpen(false); setPitchOpen(false); setMetronomeOpen(!metronomeOpen) }}><MetronomeIcon /></button>
       {metronomeOpen && <div className="metronome-popover" role="dialog" aria-label="节拍器设置">
         <header><span><MetronomeIcon /><b>节拍器</b></span><em>{formatBpm(practice.metronomeBpm)} BPM</em></header>
         <div className="metronome-switch-row">

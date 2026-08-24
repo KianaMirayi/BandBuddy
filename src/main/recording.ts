@@ -19,6 +19,7 @@ import type { BandBuddyDatabase } from './database.js'
 import type { Logger } from './logger.js'
 import type { MediaService } from './media.js'
 import type { AppPaths } from './paths.js'
+import { renderPitchedStemBus } from './pitch-shift.js'
 import { runProcess } from './process.js'
 
 interface ResolvedDeviceConfiguration {
@@ -33,7 +34,7 @@ interface ResolvedDeviceConfiguration {
 }
 
 interface SessionMetadata {
-  version: 1 | 2
+  version: 1 | 2 | 3
   id: string
   songId: string
   recordingTrackId: string | null
@@ -42,6 +43,7 @@ interface SessionMetadata {
   startPositionMs: number
   endPositionMs: number
   playbackRate: number
+  pitchSemitones?: number
   plannedEnd: boolean
   device: ResolvedDeviceConfiguration
   host: AudioHostStartResult | null
@@ -143,7 +145,7 @@ export class RecordingService {
           const sessionRoot = path.join(root, entry)
           try {
             const metadata = JSON.parse(await readFile(path.join(sessionRoot, 'session.json'), 'utf8')) as SessionMetadata
-            if (![1, 2].includes(metadata.version) || metadata.songId !== song.id || !existsSync(metadata.capturePath)) continue
+            if (![1, 2, 3].includes(metadata.version) || metadata.songId !== song.id || !existsSync(metadata.capturePath)) continue
             const recordingTrack = (metadata.recordingTrackId ? this.database.getRecordingTrack(metadata.recordingTrackId) : null)
               ?? this.database.getRecordingTracks(song.id)[0]
               ?? this.database.createRecordingTrack(song.id)
@@ -152,6 +154,7 @@ export class RecordingService {
             if (probe.durationMs <= 0) { await rm(sessionRoot, { recursive: true, force: true }); continue }
             const session: ActiveSession = {
               ...metadata,
+              pitchSemitones: metadata.pitchSemitones ?? 0,
               recordingTrackId: recordingTrack.id,
               sessionRoot,
               finalizing: null,
@@ -243,7 +246,7 @@ export class RecordingService {
       await this.renderBacking(request, startPositionMs, endPositionMs, device.sampleRate, backingPath, this.preparationAbort.signal)
       if (this.cancelledPreparations.has(id)) throw new Error('RECORDING_CANCELLED')
       const metadata: SessionMetadata = {
-        version: 2,
+        version: 3,
         id,
         songId: song.id,
         recordingTrackId: recordingTrack.id,
@@ -252,6 +255,7 @@ export class RecordingService {
         startPositionMs,
         endPositionMs,
         playbackRate: request.practice.playbackRate,
+        pitchSemitones: request.practice.pitchSemitones ?? 0,
         plannedEnd: range.plannedEnd,
         device,
         host: null,
@@ -518,33 +522,66 @@ export class RecordingService {
       .filter(({ track, take }) => track.id !== request.recordingTrackId
         && !track.muted
         && (!hasSolo || track.solo)
-        && Math.abs(take.playbackRate - request.practice.playbackRate) <= 0.0001)
+        && Math.abs(take.playbackRate - request.practice.playbackRate) <= 0.0001
+        && (take.pitchSemitones ?? 0) === (request.practice.pitchSemitones ?? 0))
       .flatMap(({ track, take }) => {
         const file = this.database.getRecordingTakeFile(take.id)
         return file ? [{ track, take, file }] : []
       })
     const durationSeconds = Math.max(0.05, (endPositionMs - startPositionMs) / request.practice.playbackRate / 1000)
+    const semitones = request.practice.pitchSemitones ?? 0
+    const harmonicStems = semitones === 0
+      ? []
+      : audibleStems.filter(({ state }) => state.stemType !== 'drums')
+    const pitchInput = path.join(path.dirname(output), 'backing.pitch-input.wav')
+    const pitchOutput = path.join(path.dirname(output), 'backing.pitch-output.wav')
+    const pitchedBus = semitones === 0 ? null : await renderPitchedStemBus({
+      paths: this.paths,
+      ffmpeg,
+      stems: harmonicStems.map(({ state, file }) => ({
+        path: this.paths.resolveLibraryPath(settings.libraryRoot, file.relPath),
+        gainDb: state.gainDb
+      })),
+      startPositionMs,
+      endPositionMs,
+      playbackRate: request.practice.playbackRate,
+      sampleRate,
+      semitones,
+      unpitchedPath: pitchInput,
+      pitchedPath: pitchOutput,
+      signal
+    })
+    const finalStems = pitchedBus
+      ? audibleStems.filter(({ state }) => state.stemType === 'drums')
+      : audibleStems
     let args: string[]
-    if (!audibleStems.length && !audibleRecordings.length) {
+    if (!pitchedBus && !finalStems.length && !audibleRecordings.length) {
       args = ['-f', 'lavfi', '-i', `anullsrc=r=${sampleRate}:cl=stereo`, '-t', durationSeconds.toFixed(6)]
     } else {
-      const inputs = [
-        ...audibleStems.flatMap(({ file }) => ['-i', this.paths.resolveLibraryPath(settings.libraryRoot, file.relPath)]),
-        ...audibleRecordings.flatMap(({ file }) => ['-i', this.paths.resolveLibraryPath(settings.libraryRoot, file.previewRelPath)])
-      ]
+      const inputs: string[] = []
       const filters: string[] = []
       const labels: string[] = []
       const tempo = atempoFilters(request.practice.playbackRate)
-      audibleStems.forEach(({ state }, index) => {
+      let inputIndex = 0
+      if (pitchedBus) {
+        inputs.push('-i', pitchedBus)
+        filters.push(`[${inputIndex}:a]aresample=${sampleRate},aformat=sample_fmts=fltp:channel_layouts=stereo[pitched]`)
+        labels.push('[pitched]')
+        inputIndex += 1
+      }
+      finalStems.forEach(({ state, file }, index) => {
         const label = `back${index}`
-        filters.push(`[${index}:a]atrim=start=${(startPositionMs / 1000).toFixed(6)}:end=${(endPositionMs / 1000).toFixed(6)},asetpts=PTS-STARTPTS,aresample=${sampleRate},aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${dbToGain(state.gainDb).toFixed(8)}${tempo ? `,${tempo}` : ''}[${label}]`)
+        inputs.push('-i', this.paths.resolveLibraryPath(settings.libraryRoot, file.relPath))
+        filters.push(`[${inputIndex}:a]atrim=start=${(startPositionMs / 1000).toFixed(6)}:end=${(endPositionMs / 1000).toFixed(6)},asetpts=PTS-STARTPTS,aresample=${sampleRate},aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${dbToGain(state.gainDb).toFixed(8)}${tempo ? `,${tempo}` : ''}[${label}]`)
         labels.push(`[${label}]`)
+        inputIndex += 1
       })
-      audibleRecordings.forEach(({ track }, recordingIndex) => {
-        const inputIndex = audibleStems.length + recordingIndex
+      audibleRecordings.forEach(({ track, file }, recordingIndex) => {
         const label = `recorded${recordingIndex}`
+        inputs.push('-i', this.paths.resolveLibraryPath(settings.libraryRoot, file.previewRelPath))
         filters.push(`[${inputIndex}:a]atrim=start=${(startPositionMs / request.practice.playbackRate / 1000).toFixed(6)}:end=${(endPositionMs / request.practice.playbackRate / 1000).toFixed(6)},asetpts=PTS-STARTPTS,aresample=${sampleRate},aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${dbToGain(track.gainDb).toFixed(8)}[${label}]`)
         labels.push(`[${label}]`)
+        inputIndex += 1
       })
       filters.push(`${labels.join('')}amix=inputs=${labels.length}:duration=longest:normalize=0,volume=${dbToGain(request.practice.masterGainDb).toFixed(8)},alimiter=limit=0.98:level=disabled[out]`)
       args = [...inputs, '-filter_complex', filters.join(';'), '-map', '[out]', '-t', durationSeconds.toFixed(6)]
@@ -553,6 +590,7 @@ export class RecordingService {
       '-y', '-v', 'error', ...args, '-map_metadata', '-1', '-vn', '-ar', String(sampleRate), '-ac', '2', '-c:a', 'pcm_f32le', output
     ], { signal })
     if (result.code !== 0) throw new Error(`RECORDING_BACKING_FAILED:${result.stderr.slice(-800)}`)
+    if (pitchedBus) await Promise.all([rm(pitchInput, { force: true }), rm(pitchOutput, { force: true })])
   }
 
   private handleHostEvent(event: AudioHostEvent): void {
@@ -672,6 +710,7 @@ export class RecordingService {
         startPositionMs: session.startPositionMs,
         endPositionMs,
         playbackRate: session.playbackRate,
+        pitchSemitones: session.pitchSemitones ?? 0,
         sampleRate: probe.sampleRate ?? result.sampleRate,
         channels: probe.channels ?? result.channels,
         alignmentOffsetMs,
@@ -781,7 +820,7 @@ export class RecordingService {
 
 function sessionMetadata(session: ActiveSession): SessionMetadata {
   return {
-    version: 2,
+    version: 3,
     id: session.id,
     songId: session.songId,
     recordingTrackId: session.recordingTrackId,
@@ -790,6 +829,7 @@ function sessionMetadata(session: ActiveSession): SessionMetadata {
     startPositionMs: session.startPositionMs,
     endPositionMs: session.endPositionMs,
     playbackRate: session.playbackRate,
+    pitchSemitones: session.pitchSemitones ?? 0,
     plannedEnd: session.plannedEnd,
     device: session.device,
     host: session.host,

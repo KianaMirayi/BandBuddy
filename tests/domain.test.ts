@@ -5,11 +5,17 @@ import {
   isTrackAudible,
   moveTrackOrder,
   normalizeTrackOrder,
+  parseMusicalKey,
   recordingTrackOrderKey,
-  stemTrackOrderKey
+  stemTrackOrderKey,
+  transposeMusicalKey
 } from '@shared/domain.js'
 
 describe('track mix rules', () => {
+  it('starts every song at its original key', () => {
+    expect(createDefaultPracticeState('00000000-0000-4000-8000-000000000000').pitchSemitones).toBe(0)
+  })
+
   it('lets mute override solo and supports multiple solos', () => {
     const tracks = createDefaultPracticeState('00000000-0000-4000-8000-000000000000').tracks
     tracks[0]!.solo = true
@@ -39,5 +45,12 @@ describe('track mix rules', () => {
     expect(new Set(order).size).toBe(7)
     expect(moveTrackOrder(order, stemTrackOrderKey('vocals'), recordingTrackOrderKey(recordingId), 'before')[0])
       .toBe(stemTrackOrderKey('vocals'))
+  })
+
+  it('normalizes compact key names and transposes them by semitone', () => {
+    expect(parseMusicalKey('Em')).toEqual({ tonic: 'E', mode: 'minor', label: 'E minor' })
+    expect(parseMusicalKey('Bb major')?.label).toBe('B♭ major')
+    expect(transposeMusicalKey('E♭ minor', 2)).toBe('F minor')
+    expect(transposeMusicalKey('B major', 1)).toBe('C major')
   })
 })

@@ -10,6 +10,8 @@ import {
   type AppSettings,
   type JobRecord,
   type JobStatus,
+  type MusicalKeyAnalysis,
+  type MusicalKeySource,
   type PracticeState,
   type RecordingTake,
   type RecordingDeviceSnapshot,
@@ -52,6 +54,8 @@ interface SongRow {
   bpm: number | null
   beat_offset_ms: number
   musical_key: string | null
+  musical_key_source: MusicalKeySource | null
+  key_analysis_json: string | null
   time_signature: string | null
   lyrics_lrc: string | null
   lyrics_file_name: string | null
@@ -100,6 +104,7 @@ interface RecordingTakeRow {
   start_position_ms: number
   end_position_ms: number
   playback_rate: number
+  pitch_semitones: number
   sample_rate: number
   channels: number
   alignment_offset_ms: number
@@ -198,6 +203,7 @@ export interface StoredRecordingTakeInput {
   startPositionMs: number
   endPositionMs: number
   playbackRate: number
+  pitchSemitones: number
   sampleRate: number
   channels: number
   alignmentOffsetMs: number
@@ -482,8 +488,27 @@ export const DATABASE_MIGRATIONS = [
     );
     CREATE INDEX IF NOT EXISTS rehearsal_takes_track_created_idx
       ON rehearsal_recording_takes(recording_track_id, created_at DESC);
+  `,
+  `
+    ALTER TABLE recording_takes ADD COLUMN pitch_semitones INTEGER NOT NULL DEFAULT 0;
+  `,
+  `
+    ALTER TABLE songs ADD COLUMN key_analysis_json TEXT;
+    ALTER TABLE songs ADD COLUMN musical_key_source TEXT CHECK(musical_key_source IN ('detected', 'manual'));
+    UPDATE songs SET musical_key_source = 'manual' WHERE musical_key IS NOT NULL;
   `
 ]
+
+function parseKeyAnalysis(value: string | null): MusicalKeyAnalysis | null {
+  if (!value) return null
+  try {
+    const analysis = JSON.parse(value) as MusicalKeyAnalysis
+    if (!analysis || typeof analysis.label !== 'string' || typeof analysis.confidence !== 'number' || !Array.isArray(analysis.candidates) || !Array.isArray(analysis.segments)) return null
+    return analysis
+  } catch {
+    return null
+  }
+}
 
 function parseDeviceSnapshot(row: RecordingTakeRow): RecordingDeviceSnapshot {
   let saved: Partial<RecordingDeviceSnapshot> = {}
@@ -568,6 +593,7 @@ export class BandBuddyDatabase {
       libraryRoot: this.paths.defaultLibraryRoot,
       runtimeRoot: this.paths.pythonRoot,
       modelRoot: this.paths.modelRoot,
+      debugMode: false,
       preferredDevice: 'auto',
       audioOutputDeviceId: '',
       latencyMode: 'balanced',
@@ -663,6 +689,8 @@ export class BandBuddyDatabase {
       bpm: row.bpm,
       beatOffsetMs: row.beat_offset_ms,
       musicalKey: row.musical_key,
+      musicalKeySource: row.musical_key_source,
+      keyAnalysis: parseKeyAnalysis(row.key_analysis_json),
       timeSignature: row.time_signature,
       sourceFormat: row.source_format,
       sampleRate: row.sample_rate,
@@ -719,14 +747,19 @@ export class BandBuddyDatabase {
     bpm?: number | null
     beatOffsetMs?: number
     musicalKey?: string | null
+    musicalKeySource?: MusicalKeySource | null
     timeSignature?: string | null
   }): SongDetail {
     const mapping: Record<string, string> = {
-      title: 'title', artist: 'artist', favorite: 'favorite', bpm: 'bpm', beatOffsetMs: 'beat_offset_ms', musicalKey: 'musical_key', timeSignature: 'time_signature'
+      title: 'title', artist: 'artist', favorite: 'favorite', bpm: 'bpm', beatOffsetMs: 'beat_offset_ms', musicalKey: 'musical_key', musicalKeySource: 'musical_key_source', timeSignature: 'time_signature'
+    }
+    const normalizedPatch = { ...patch }
+    if (Object.hasOwn(patch, 'musicalKey') && !Object.hasOwn(patch, 'musicalKeySource')) {
+      normalizedPatch.musicalKeySource = patch.musicalKey ? 'manual' : null
     }
     const updates: string[] = []
     const values: unknown[] = []
-    for (const [key, value] of Object.entries(patch)) {
+    for (const [key, value] of Object.entries(normalizedPatch)) {
       if (!(key in mapping)) continue
       updates.push(`${mapping[key]} = ?`)
       values.push(typeof value === 'boolean' ? Number(value) : value)
@@ -736,6 +769,26 @@ export class BandBuddyDatabase {
       values.push(new Date().toISOString(), id)
       this.sqlite.prepare(`UPDATE songs SET ${updates.join(', ')} WHERE id = ?`).run(...values)
     }
+    const song = this.getSong(id)
+    if (!song) throw new Error('SONG_NOT_FOUND')
+    return song
+  }
+
+  saveKeyAnalysis(id: string, analysis: MusicalKeyAnalysis): SongDetail {
+    const row = this.sqlite.prepare('SELECT musical_key, musical_key_source FROM songs WHERE id = ?').get(id) as Pick<SongRow, 'musical_key' | 'musical_key_source'> | undefined
+    if (!row) throw new Error('SONG_NOT_FOUND')
+    const preserveManual = row.musical_key_source === 'manual' && Boolean(row.musical_key)
+    this.sqlite.prepare(`
+      UPDATE songs
+      SET key_analysis_json = ?, musical_key = ?, musical_key_source = ?, updated_at = ?
+      WHERE id = ?
+    `).run(
+      JSON.stringify(analysis),
+      preserveManual ? row.musical_key : analysis.label,
+      preserveManual ? 'manual' : 'detected',
+      new Date().toISOString(),
+      id
+    )
     const song = this.getSong(id)
     if (!song) throw new Error('SONG_NOT_FOUND')
     return song
@@ -930,12 +983,12 @@ export class BandBuddyDatabase {
       this.sqlite.prepare(`
         INSERT INTO recording_takes(
           id, song_id, recording_track_id, name, source_rel_path, preview_rel_path, peaks_rel_path, duration_ms,
-          start_position_ms, end_position_ms, playback_rate, sample_rate, channels,
+          start_position_ms, end_position_ms, playback_rate, pitch_semitones, sample_rate, channels,
           alignment_offset_ms, backend, input_device_name, input_channels_json, interrupted, created_at, device_snapshot_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id, input.songId, input.recordingTrackId, input.name, input.sourceRelPath, input.previewRelPath, input.peaksRelPath,
-        Math.round(input.durationMs), input.startPositionMs, input.endPositionMs, input.playbackRate,
+        Math.round(input.durationMs), input.startPositionMs, input.endPositionMs, input.playbackRate, input.pitchSemitones,
         input.sampleRate, input.channels, input.alignmentOffsetMs, input.backend, input.inputDeviceName,
         JSON.stringify(input.inputChannels), Number(Boolean(input.interrupted)), createdAt, JSON.stringify(input.deviceSnapshot)
       )
@@ -1021,6 +1074,7 @@ export class BandBuddyDatabase {
     startPositionMs: row.start_position_ms,
     endPositionMs: row.end_position_ms,
     playbackRate: row.playback_rate,
+    pitchSemitones: row.pitch_semitones ?? 0,
     sampleRate: row.sample_rate,
     channels: row.channels,
     alignmentOffsetMs: row.alignment_offset_ms,

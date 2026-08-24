@@ -4,8 +4,9 @@ import { rename, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { protocol } from 'electron'
-import { type BpmDetectionResult, type MediaCapabilities, type StemType } from '@shared/domain.js'
+import { type BpmDetectionResult, type MediaCapabilities, type MusicalKeyAnalysis, type StemType } from '@shared/domain.js'
 import { detectBpmFromSamples, type BpmAnalysis } from './bpm-detection.js'
+import { detectMusicalKeyFromSamples } from './key-detection.js'
 import type { BandBuddyDatabase } from './database.js'
 import type { AppPaths } from './paths.js'
 import { runProcess, spawnSafe } from './process.js'
@@ -292,6 +293,56 @@ export class MediaService {
     const samples = new Float32Array(Math.floor(pcm.length / 4))
     for (let index = 0; index < samples.length; index += 1) samples[index] = pcm.readFloatLE(index * 4)
     return detectBpmFromSamples(samples, sampleRate)
+  }
+
+  async detectKey(songId: string): Promise<MusicalKeyAnalysis> {
+    const ffmpeg = this.tool('ffmpeg')
+    if (!ffmpeg) throw new Error('FFMPEG_MISSING')
+    const song = this.database.getSong(songId)
+    if (!song) throw new Error('SONG_NOT_FOUND')
+    const preference: StemType[] = ['bass', 'guitar', 'piano', 'other', 'vocals']
+    const stems = preference
+      .map((type) => song.stems.find((candidate) => candidate.type === type))
+      .filter((stem): stem is NonNullable<typeof stem> => Boolean(stem))
+    if (!stems.length) throw new Error('KEY_DETECTION_NO_AUDIO')
+    const inputs = stems.map((stem) => ({ stem, path: this.resolveProtocolPath(new URL(stem.mediaUrl)) }))
+      .filter((entry): entry is { stem: (typeof stems)[number]; path: string } => Boolean(entry.path))
+    if (!inputs.length) throw new Error('KEY_DETECTION_NO_AUDIO')
+
+    const sampleRate = 11_025
+    const labels = inputs.map((_, index) => `[${index}:a]`).join('')
+    const filter = inputs.length === 1
+      ? '[0:a]anull[keymix]'
+      : `${labels}amix=inputs=${inputs.length}:duration=longest:normalize=1[keymix]`
+    const child = spawnSafe(ffmpeg, [
+      '-v', 'error', ...inputs.flatMap((input) => ['-i', input.path]),
+      '-filter_complex', filter, '-map', '[keymix]', '-t', '300', '-vn',
+      '-ac', '1', '-ar', String(sampleRate), '-f', 'f32le', 'pipe:1'
+    ])
+    const outputChunks: Buffer[] = []
+    const errorChunks: Buffer[] = []
+    child.stdout.on('data', (chunk: Buffer) => outputChunks.push(chunk))
+    child.stderr.on('data', (chunk: Buffer) => errorChunks.push(chunk))
+    const code = await new Promise<number>((resolve, reject) => {
+      child.once('error', reject)
+      child.once('close', (value) => resolve(value ?? -1))
+    })
+    if (code !== 0) throw new Error(`KEY_DETECTION_DECODE_FAILED:${Buffer.concat(errorChunks).toString('utf8').slice(-500)}`)
+    const pcm = Buffer.concat(outputChunks)
+    const samples = new Float32Array(Math.floor(pcm.length / 4))
+    for (let index = 0; index < samples.length; index += 1) samples[index] = pcm.readFloatLE(index * 4)
+    const analysis = detectMusicalKeyFromSamples(samples, sampleRate, inputs.map(({ stem }) => stem.type))
+    if (!analysis) throw new Error('KEY_DETECTION_UNSTABLE')
+    const saved = this.database.saveKeyAnalysis(songId, analysis)
+    this.logger.info('musical key detected and saved', {
+      songId,
+      key: analysis.label,
+      confidence: analysis.confidence,
+      analyzedStems: analysis.analyzedStems,
+      possibleModulations: analysis.segments.filter((segment) => segment.possibleModulation).length,
+      preservedManualKey: saved.musicalKeySource === 'manual'
+    })
+    return analysis
   }
 
   registerProtocol(): void {

@@ -24,6 +24,7 @@ import { usePlayerStore } from './player-store.js'
 import { LibraryPage } from './pages/LibraryPage.js'
 import { PracticeRoom } from './pages/PracticeRoom.js'
 import { RehearsalRoom } from './pages/RehearsalRoom.js'
+import { loadStartupAudioSettings } from './startup-audio-devices.js'
 import { clamp, isCancellationError, toUserErrorMessage } from './utils.js'
 
 const fixtureMode = import.meta.env.DEV && new URLSearchParams(location.search).has('fixtures')
@@ -47,6 +48,7 @@ export default function App(): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [metadataOpen, setMetadataOpen] = useState(false)
+  const [metadataSong, setMetadataSong] = useState<SongDetail | null>(null)
   const [songActionsOpen, setSongActionsOpen] = useState(false)
   const [actionSong, setActionSong] = useState<SongSummary | null>(null)
   const [toast, setToast] = useState('')
@@ -94,7 +96,13 @@ export default function App(): React.JSX.Element {
   })
   const tasksQuery = useQuery({ queryKey: ['tasks'], queryFn: () => window.bandbuddy.tasks.list() })
   const runtimeQuery = useQuery({ queryKey: ['runtime'], queryFn: () => window.bandbuddy.runtime.get() })
-  const settingsQuery = useQuery({ queryKey: ['settings'], queryFn: () => window.bandbuddy.settings.get() })
+  const settingsQuery = useQuery({
+    queryKey: ['settings'],
+    queryFn: fixtureMode ? () => window.bandbuddy.settings.get() : loadStartupAudioSettings,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false
+  })
 
   useEffect(() => {
     void window.bandbuddy.recording.state().then(setRecordingState)
@@ -119,6 +127,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     engine.current.onTime(setCurrentMs)
     engine.current.onEnded(() => { setPlaying(false); setCountInRemaining(0); setCurrentMs(0) })
+    engine.current.onError(() => setToast('实时升降调初始化失败，当前保持原调；请重试或检查音频组件'))
     return () => engine.current.destroy()
   }, [setCurrentMs, setPlaying])
 
@@ -362,6 +371,19 @@ export default function App(): React.JSX.Element {
     }
   }
 
+  const editSongMetadata = async (): Promise<void> => {
+    const selected = actionSong
+    if (!selected) return
+    try {
+      const detail = fixtureMode ? fixtureDetail(selected) : await window.bandbuddy.library.get(selected.id)
+      if (!detail) { setToast('歌曲不存在或已被删除'); return }
+      setMetadataSong(detail)
+      setMetadataOpen(true)
+    } catch (error) {
+      setToast(toUserErrorMessage(error, '无法读取歌曲信息，请重试'))
+    }
+  }
+
   const recordingLocked = !['idle', 'failed'].includes(recordingState.phase)
   useKeyboardShortcuts({ song, practice, currentMs, selectedStem, seek, togglePlayback, patchPractice, patchTrack, setSelectedStem, enabled: view !== 'rehearsal' && !recordingLocked })
 
@@ -434,12 +456,12 @@ export default function App(): React.JSX.Element {
       recordingState={recordingState} recordingMeter={recordingMeter} locked={recordingLocked}
       backLabel={rehearsalReturn ? '返回排练房' : '返回曲库'}
       onBack={() => void returnFromPractice()} onSeek={seek} onPatch={patchPractice} onTrack={patchTrack}
-      onSelected={setSelectedStem} onExport={() => setExportOpen(true)} onAddRecordingTrack={() => void createRecordingTrack()} onEdit={() => setMetadataOpen(true)}
+      onSelected={setSelectedStem} onExport={() => setExportOpen(true)} onAddRecordingTrack={() => void createRecordingTrack()} onEdit={() => { setMetadataSong(song); setMetadataOpen(true) }}
       onMore={() => { setActionSong(song); setSongActionsOpen(true) }}
       onRecord={(recordingTrackId) => void startRecording(recordingTrackId)} onStopRecording={() => void stopRecording()} onCancelRecording={() => void cancelRecording()}
       onSelectTake={(recordingTrackId, takeId) => void selectTake(recordingTrackId, takeId)} onUpdateTake={(takeId, patch) => void updateTake(takeId, patch)}
       onDeleteTake={(takeId) => void deleteTake(takeId)} onRecordingTrack={(recordingTrackId, patch) => void updateRecordingTrack(recordingTrackId, patch)}
-      onUseTakeSpeed={(rate) => patchPractice({ playbackRate: rate })}
+      onUseTakePractice={(rate, pitchSemitones) => patchPractice({ playbackRate: rate, pitchSemitones })}
     /> : <NoSongPractice onLibrary={() => setView('library')} onImport={() => setImportOpen(true)} />}
     {view !== 'rehearsal' && <PlayerBar practiceMode={view === 'practice'} countInRemaining={countInRemaining} locked={recordingLocked} onToggle={() => void togglePlayback()} onSeek={seek} onPractice={() => {
       if (!song) return
@@ -454,9 +476,10 @@ export default function App(): React.JSX.Element {
       void engine.current.setOutputDevice(saved.audioOutputDeviceId).catch(() => setToast('无法切换到所选音频输出，请检查设备连接或权限'))
     }} onRefresh={() => { void runtimeQuery.refetch(); void tasksQuery.refetch() }} />}
     {song && practice && <ExportDialog open={exportOpen} onOpenChange={setExportOpen} song={song} practice={practice} onBeforeStart={saveNow} />}
-    {song && <MetadataDialog open={metadataOpen} onOpenChange={setMetadataOpen} song={song} onSaved={(updated) => { void replaceCurrentSong(updated); void client.invalidateQueries({ queryKey: ['songs'] }) }} />}
+    {metadataSong && <MetadataDialog open={metadataOpen} onOpenChange={(open) => { setMetadataOpen(open); if (!open) setMetadataSong(null) }} song={metadataSong} onSaved={(updated) => { if (song?.id === updated.id) void replaceCurrentSong(updated); setMetadataSong(updated); void client.invalidateQueries({ queryKey: ['songs'] }) }} />}
     <SongActionsDialog open={songActionsOpen} onOpenChange={setSongActionsOpen} song={actionSong}
       onOpen={() => { if (actionSong) void openSong(actionSong) }}
+      onEditMetadata={() => void editSongMetadata()}
       onImportLyrics={() => void importLyrics()}
       onReveal={() => { if (actionSong) void window.bandbuddy.library.openLocation(actionSong.id) }}
       onReseparate={() => { if (!actionSong) return; void window.bandbuddy.library.reSeparate(actionSong.id).then(() => { setTasksOpen(true); if (runtime?.status !== 'ready') setSettingsOpen(true) }).catch((error) => setToast(toUserErrorMessage(error, '无法重新分轨，请重试'))) }}

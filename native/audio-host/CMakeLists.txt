@@ -42,6 +42,8 @@ endfunction()
 bandbuddy_github_urls(RTAUDIO_URLS "https://github.com/thestk/rtaudio/archive/refs/tags/6.0.1.tar.gz")
 bandbuddy_github_urls(NLOHMANN_JSON_URLS "https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz")
 bandbuddy_github_urls(PORTAUDIO_URLS "https://github.com/PortAudio/portaudio/archive/refs/tags/v19.7.0.tar.gz")
+bandbuddy_github_urls(SIGNALSMITH_LINEAR_URLS "https://github.com/Signalsmith-Audio/linear/archive/refs/tags/0.3.1.tar.gz")
+bandbuddy_github_urls(SIGNALSMITH_STRETCH_URLS "https://github.com/Signalsmith-Audio/signalsmith-stretch/archive/57b93f4e9206a089a45387eaa39bdc9f310d3308.tar.gz")
 FetchContent_Declare(
   rtaudio
   URL ${RTAUDIO_URLS}
@@ -52,6 +54,17 @@ FetchContent_Declare(
   URL ${NLOHMANN_JSON_URLS}
   URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
 )
+FetchContent_Declare(
+  signalsmith_linear
+  URL ${SIGNALSMITH_LINEAR_URLS}
+  URL_HASH SHA256=b294471f1306baa4d968b230a8836924680e9ca068a667f4659259d66edbe9bc
+)
+FetchContent_Declare(
+  signalsmith_stretch
+  URL ${SIGNALSMITH_STRETCH_URLS}
+  URL_HASH SHA256=ad02e24334438b203e81d44f6c9906f3c6773e90a4ea923bb3e73d15697187d6
+)
+FetchContent_MakeAvailable(signalsmith_linear signalsmith_stretch)
 if(WIN32)
   FetchContent_Declare(
     portaudio
@@ -65,7 +78,7 @@ else()
 endif()
 
 add_executable(bandbuddy-audio-host src/main.cpp)
-target_link_libraries(bandbuddy-audio-host PRIVATE rtaudio nlohmann_json::nlohmann_json)
+target_link_libraries(bandbuddy-audio-host PRIVATE rtaudio nlohmann_json::nlohmann_json signalsmith-stretch)
 target_compile_definitions(bandbuddy-audio-host PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
 
 if(WIN32)

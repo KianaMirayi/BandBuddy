@@ -31,6 +31,7 @@ import type { BandBuddyDatabase } from './database.js'
 import type { Logger } from './logger.js'
 import type { MediaService } from './media.js'
 import type { AppPaths } from './paths.js'
+import { renderPitchedStemBus } from './pitch-shift.js'
 import { runProcess } from './process.js'
 import { buildClockCorrectionFilters, calculateTakeAlignmentOffset, repairWaveHeader } from './recording.js'
 
@@ -575,6 +576,7 @@ export class RehearsalRecordingService {
     const activeRecordings = song.recordingTracks.flatMap((track) => {
       const take = song.recordingTakes.find((candidate) => candidate.id === track.activeTakeId)
       return take && Math.abs(take.playbackRate - song.practice.playbackRate) <= 0.0001
+        && (take.pitchSemitones ?? 0) === (song.practice.pitchSemitones ?? 0)
         ? [{ track, take }]
         : []
     })
@@ -592,37 +594,60 @@ export class RehearsalRecordingService {
       })
     const durationSeconds = Math.max(0.05, (endPositionMs - startPositionMs) / song.practice.playbackRate / 1000)
     const settings = this.database.getSettings()
-    const inputs = [
-      ...audibleStems.flatMap(({ file }) => ['-i', this.paths.resolveLibraryPath(settings.libraryRoot, file.relPath)]),
-      ...audibleRecordings.flatMap(({ file }) => ['-i', this.paths.resolveLibraryPath(settings.libraryRoot, file.previewRelPath)]),
-      ...(song.practice.metronomeEnabled
-        ? ['-f', 'lavfi', '-i', clickSource(
-          song.practice.metronomeBpm * song.practice.playbackRate,
-          durationSeconds,
-          sampleRate,
-          (startPositionMs - song.practice.metronomeOffsetMs) / song.practice.playbackRate / 1000
-        )]
-        : [])
-    ]
-    if (!inputs.length) {
+    const semitones = song.practice.pitchSemitones ?? 0
+    const harmonicStems = semitones === 0
+      ? []
+      : audibleStems.filter(({ state }) => state.stemType !== 'drums')
+    const pitchInput = `${output}.pitch-input.wav`
+    const pitchOutput = `${output}.pitch-output.wav`
+    const pitchedBus = semitones === 0 ? null : await renderPitchedStemBus({
+      paths: this.paths,
+      ffmpeg,
+      stems: harmonicStems.map(({ state, file }) => ({
+        path: this.paths.resolveLibraryPath(settings.libraryRoot, file.relPath),
+        gainDb: state.gainDb
+      })),
+      startPositionMs,
+      endPositionMs,
+      playbackRate: song.practice.playbackRate,
+      sampleRate,
+      semitones,
+      unpitchedPath: pitchInput,
+      pitchedPath: pitchOutput,
+      signal
+    })
+    const finalStems = pitchedBus
+      ? audibleStems.filter(({ state }) => state.stemType === 'drums')
+      : audibleStems
+    if (!pitchedBus && !finalStems.length && !audibleRecordings.length && !song.practice.metronomeEnabled) {
       await this.renderSilenceOrClick(output, durationSeconds * 1000, sampleRate, null, 0, signal)
       return
     }
+    const inputs: string[] = []
     const filters: string[] = []
     const labels: string[] = []
     const tempo = atempoFilters(song.practice.playbackRate)
-    audibleStems.forEach(({ state }, index) => {
+    let inputIndex = 0
+    if (pitchedBus) {
+      inputs.push('-i', pitchedBus)
+      filters.push(`[${inputIndex}:a]aresample=${sampleRate},aformat=sample_fmts=fltp:channel_layouts=stereo[pitched]`)
+      labels.push('[pitched]')
+      inputIndex += 1
+    }
+    finalStems.forEach(({ state, file }, index) => {
       const label = `stem${index}`
+      inputs.push('-i', this.paths.resolveLibraryPath(settings.libraryRoot, file.relPath))
       filters.push(
-        `[${index}:a]atrim=start=${(startPositionMs / 1000).toFixed(6)}:end=${(endPositionMs / 1000).toFixed(6)},` +
+        `[${inputIndex}:a]atrim=start=${(startPositionMs / 1000).toFixed(6)}:end=${(endPositionMs / 1000).toFixed(6)},` +
         `asetpts=PTS-STARTPTS,aresample=${sampleRate},aformat=sample_fmts=fltp:channel_layouts=stereo,` +
         `volume=${dbToGain(state.gainDb).toFixed(8)}${tempo ? `,${tempo}` : ''}[${label}]`
       )
       labels.push(`[${label}]`)
+      inputIndex += 1
     })
-    audibleRecordings.forEach(({ track }, index) => {
-      const inputIndex = audibleStems.length + index
+    audibleRecordings.forEach(({ track, file }, index) => {
       const label = `take${index}`
+      inputs.push('-i', this.paths.resolveLibraryPath(settings.libraryRoot, file.previewRelPath))
       filters.push(
         `[${inputIndex}:a]atrim=start=${(startPositionMs / song.practice.playbackRate / 1000).toFixed(6)}:` +
         `end=${(endPositionMs / song.practice.playbackRate / 1000).toFixed(6)},asetpts=PTS-STARTPTS,` +
@@ -630,9 +655,15 @@ export class RehearsalRecordingService {
         `volume=${dbToGain(track.gainDb).toFixed(8)}[${label}]`
       )
       labels.push(`[${label}]`)
+      inputIndex += 1
     })
     if (song.practice.metronomeEnabled) {
-      const inputIndex = audibleStems.length + audibleRecordings.length
+      inputs.push('-f', 'lavfi', '-i', clickSource(
+        song.practice.metronomeBpm * song.practice.playbackRate,
+        durationSeconds,
+        sampleRate,
+        (startPositionMs - song.practice.metronomeOffsetMs) / song.practice.playbackRate / 1000
+      ))
       filters.push(`[${inputIndex}:a]aformat=sample_fmts=fltp:channel_layouts=stereo[click]`)
       labels.push('[click]')
     }
@@ -646,6 +677,7 @@ export class RehearsalRecordingService {
       '-ar', String(sampleRate), '-ac', '2', '-c:a', 'pcm_f32le', output
     ], { signal })
     if (result.code !== 0) throw new Error(`REHEARSAL_SONG_RENDER_FAILED:${result.stderr.slice(-800)}`)
+    if (pitchedBus) await Promise.all([rm(pitchInput, { force: true }), rm(pitchOutput, { force: true })])
   }
 
   private async renderSilenceOrClick(

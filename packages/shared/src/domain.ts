@@ -3,6 +3,9 @@ export type StemType = (typeof STEM_ORDER)[number]
 
 export const PLAYBACK_RATE_MIN = 0.2
 export const PLAYBACK_RATE_MAX = 4
+export const PITCH_SEMITONES_MIN = -12
+export const PITCH_SEMITONES_MAX = 12
+export const PITCH_SEMITONES_STEP = 1
 export const METRONOME_OFFSET_MIN_MS = -3000
 export const METRONOME_OFFSET_MAX_MS = 3000
 
@@ -32,6 +35,63 @@ export type SongStatus = 'blockedRuntime' | 'queued' | 'processing' | 'ready' | 
 export type ExportFormat = 'wav' | 'flac' | 'mp3'
 export type AudioBackend = 'auto' | 'asio' | 'wasapi-exclusive' | 'wasapi-shared' | 'coreaudio'
 export type RecordingPhase = 'idle' | 'preparing' | 'armed' | 'countIn' | 'recording' | 'stopping' | 'finalizing' | 'testing' | 'failed'
+
+export const MUSICAL_KEY_TONICS = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'] as const
+export type MusicalKeyTonic = (typeof MUSICAL_KEY_TONICS)[number]
+export type MusicalKeyMode = 'major' | 'minor'
+export type MusicalKeySource = 'detected' | 'manual'
+
+export interface MusicalKeyCandidate {
+  tonic: MusicalKeyTonic
+  mode: MusicalKeyMode
+  label: string
+  confidence: number
+}
+
+export interface MusicalKeySegment extends MusicalKeyCandidate {
+  startMs: number
+  endMs: number
+  possibleModulation: boolean
+}
+
+export interface MusicalKeyAnalysis extends MusicalKeyCandidate {
+  lowConfidence: boolean
+  candidates: MusicalKeyCandidate[]
+  segments: MusicalKeySegment[]
+  analyzedStems: StemType[]
+  analyzedDurationMs: number
+  analyzedAt: string
+}
+
+const MUSICAL_KEY_ALIASES: Record<string, MusicalKeyTonic> = {
+  C: 'C', 'C#': 'C♯', DB: 'C♯', D: 'D', 'D#': 'E♭', EB: 'E♭', E: 'E',
+  F: 'F', 'F#': 'F♯', GB: 'F♯', G: 'G', 'G#': 'A♭', AB: 'A♭', A: 'A',
+  'A#': 'B♭', BB: 'B♭', B: 'B'
+}
+
+export function formatMusicalKey(tonic: MusicalKeyTonic, mode: MusicalKeyMode): string {
+  return `${tonic} ${mode}`
+}
+
+export function parseMusicalKey(value: string | null | undefined): { tonic: MusicalKeyTonic; mode: MusicalKeyMode; label: string } | null {
+  const normalized = value?.trim().replaceAll('♯', '#').replaceAll('♭', 'b')
+  if (!normalized) return null
+  const match = /^([A-Ga-g])([#b]?)(?:\s*(major|minor|maj|min|m))?$/i.exec(normalized)
+  if (!match) return null
+  const tonic = MUSICAL_KEY_ALIASES[`${match[1]!.toUpperCase()}${match[2]!.toUpperCase()}`]
+  if (!tonic) return null
+  const suffix = match[3]?.toLowerCase()
+  const mode: MusicalKeyMode = suffix === 'm' || suffix === 'min' || suffix === 'minor' ? 'minor' : 'major'
+  return { tonic, mode, label: formatMusicalKey(tonic, mode) }
+}
+
+export function transposeMusicalKey(value: string | null | undefined, semitones: number): string | null {
+  const parsed = parseMusicalKey(value)
+  if (!parsed) return value ?? null
+  const tonicIndex = MUSICAL_KEY_TONICS.indexOf(parsed.tonic)
+  const transposed = MUSICAL_KEY_TONICS[((tonicIndex + Math.round(semitones)) % 12 + 12) % 12]!
+  return formatMusicalKey(transposed, parsed.mode)
+}
 
 export interface StemMeta {
   label: string
@@ -119,6 +179,7 @@ export interface PracticeState {
   songId: string
   positionMs: number
   playbackRate: number
+  pitchSemitones: number
   masterGainDb: number
   metronomeEnabled: boolean
   metronomeBpm: number
@@ -190,6 +251,8 @@ export interface SongDetail extends SongSummary {
   bpm: number | null
   beatOffsetMs: number
   musicalKey: string | null
+  musicalKeySource: MusicalKeySource | null
+  keyAnalysis: MusicalKeyAnalysis | null
   timeSignature: string | null
   sourceFormat: string | null
   sampleRate: number | null
@@ -210,6 +273,7 @@ export interface RecordingTake {
   startPositionMs: number
   endPositionMs: number
   playbackRate: number
+  pitchSemitones: number
   sampleRate: number
   channels: number
   alignmentOffsetMs: number
@@ -377,6 +441,7 @@ export interface AppSettings {
   libraryRoot: string
   runtimeRoot: string
   modelRoot: string
+  debugMode: boolean
   preferredDevice: ComputeDevice
   audioOutputDeviceId: string
   latencyMode: 'interactive' | 'balanced' | 'playback'
@@ -442,6 +507,8 @@ export interface ExportRequest {
   outputPath?: string
   applyPlaybackRate: boolean
   playbackRate: number
+  applyPitchShift: boolean
+  pitchSemitones: number
   applyLoopRange: boolean
   loopStartMs: number | null
   loopEndMs: number | null
@@ -459,6 +526,7 @@ export function createDefaultPracticeState(songId: string): PracticeState {
     songId,
     positionMs: 0,
     playbackRate: 1,
+    pitchSemitones: 0,
     masterGainDb: 0,
     metronomeEnabled: false,
     metronomeBpm: 120,

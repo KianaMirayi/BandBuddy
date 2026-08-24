@@ -32,15 +32,17 @@ export class RehearsalAudioEngine {
   private songs = new Map<string, SongDetail>()
   private currentMs = 0
   private playing = false
-  private preparing = false
+  private preparation: Promise<boolean> | null = null
   private currentSegmentId: string | null = null
   private frame = 0
   private clockStartedAt = 0
   private clockPositionMs = 0
   private timeListener: ((position: RehearsalTimelinePosition, playing: boolean) => void) | null = null
   private endedListener: (() => void) | null = null
+  private errorListener: ((error: unknown) => void) | null = null
   private overlayContext: AudioContext | null = null
   private overlayMaster: GainNode | null = null
+  private overlayDelay: DelayNode | null = null
   private overlayMasterConnected = false
   private overlays = new Map<string, OverlayAudio>()
   private clickContext: AudioContext | null = null
@@ -52,6 +54,7 @@ export class RehearsalAudioEngine {
   constructor() {
     this.songEngine.onTime(() => undefined)
     this.songEngine.onEnded(() => void this.finishCurrentSegment())
+    this.songEngine.onError?.((error) => this.errorListener?.(error))
   }
 
   onTime(listener: (position: RehearsalTimelinePosition, playing: boolean) => void): void {
@@ -60,6 +63,10 @@ export class RehearsalAudioEngine {
 
   onEnded(listener: () => void): void {
     this.endedListener = listener
+  }
+
+  onError(listener: (error: unknown) => void): void {
+    this.errorListener = listener
   }
 
   async configure(configuration: RehearsalPlaybackConfiguration): Promise<void> {
@@ -76,19 +83,20 @@ export class RehearsalAudioEngine {
   get positionMs(): number { return this.currentMs }
   get isPlaying(): boolean { return this.playing }
 
-  async play(): Promise<void> {
+  async play(): Promise<boolean> {
     const configuration = this.configuration
-    if (!configuration || !configuration.timeline.segments.length) return
+    if (!configuration || !configuration.timeline.segments.length) return false
     const generation = ++this.generation
     if (this.currentMs >= configuration.timeline.totalDurationMs) this.currentMs = 0
-    await this.prepareCurrentSegment(generation)
-    if (generation !== this.generation) return
+    const prepared = await this.prepareCurrentSegment(generation)
+    if (!prepared || generation !== this.generation) return false
     this.playing = true
     this.clockPositionMs = this.currentMs
     this.clockStartedAt = performance.now()
     this.playOverlays()
     this.monitor()
     this.emitTime()
+    return true
   }
 
   pause(): void {
@@ -155,56 +163,72 @@ export class RehearsalAudioEngine {
     void this.clickContext?.close()
     this.overlayContext = null
     this.overlayMaster = null
+    this.overlayDelay = null
     this.overlayMasterConnected = false
     this.clickContext = null
   }
 
-  private async prepareCurrentSegment(generation: number): Promise<void> {
-    if (this.preparing) return
+  private async prepareCurrentSegment(generation: number): Promise<boolean> {
+    while (this.preparation) {
+      await this.preparation
+      if (generation !== this.generation) return false
+    }
+    const preparation = this.loadCurrentSegment(generation)
+    this.preparation = preparation
+    try {
+      return await preparation
+    } finally {
+      if (this.preparation === preparation) this.preparation = null
+    }
+  }
+
+  private async loadCurrentSegment(generation: number): Promise<boolean> {
     const configuration = this.configuration
-    if (!configuration) return
+    if (!configuration || generation !== this.generation) return false
     const position = rehearsalTimelinePosition(configuration.timeline, this.currentMs)
     const segment = position.segment
-    if (!segment || segment.id === this.currentSegmentId) {
-      if (segment?.kind === 'song') this.songEngine.seek(position.songSourceMs)
-      return
+    if (!segment) return false
+    if (segment.id === this.currentSegmentId) {
+      if (segment.kind !== 'song') return true
+      this.songEngine.seek(position.songSourceMs)
+      return this.songEngine.play(0)
     }
-    this.preparing = true
-    try {
-      this.songEngine.pause()
+    this.songEngine.pause()
+    this.lastCountInBeat = -1
+    if (segment.kind !== 'song' || !segment.songId) {
+      this.setOverlayDelay(0)
       this.currentSegmentId = segment.id
-      this.lastCountInBeat = -1
-      if (segment.kind !== 'song' || !segment.songId) {
-        this.preloadNextSong(segment.endMs)
-        return
-      }
-      const source = this.songs.get(segment.songId)
-      if (!source) throw new Error('REHEARSAL_SONG_UNAVAILABLE')
-      const hasRehearsalSolo = configuration.recordingTracks.some((track) => {
-        const take = configuration.recordingTakes.find((candidate) => candidate.id === track.activeTakeId)
-        return Boolean(take && take.timelineFingerprint === configuration.timeline.fingerprint && track.solo && !track.muted)
-      })
-      const song: SongDetail = {
-        ...source,
-        practice: {
-          ...source.practice,
-          positionMs: position.songSourceMs,
-          loopEnabled: false,
-          loopStartMs: null,
-          loopEndMs: null,
-          masterGainDb: hasRehearsalSolo ? -60 : source.practice.masterGainDb
-        }
-      }
-      await this.songEngine.load(song, configuration.outputDeviceId, configuration.latencyMode)
-      if (generation !== this.generation) return
-      this.songEngine.applyPractice(song.practice, true)
-      const latest = rehearsalTimelinePosition(configuration.timeline, this.currentMs)
-      this.songEngine.seek(latest.segment?.id === segment.id ? latest.songSourceMs : position.songSourceMs)
-      await this.songEngine.play(0)
       this.preloadNextSong(segment.endMs)
-    } finally {
-      this.preparing = false
+      return true
     }
+    this.currentSegmentId = null
+    const source = this.songs.get(segment.songId)
+    if (!source) throw new Error('REHEARSAL_SONG_UNAVAILABLE')
+    const hasRehearsalSolo = configuration.recordingTracks.some((track) => {
+      const take = configuration.recordingTakes.find((candidate) => candidate.id === track.activeTakeId)
+      return Boolean(take && take.timelineFingerprint === configuration.timeline.fingerprint && track.solo && !track.muted)
+    })
+    const song: SongDetail = {
+      ...source,
+      practice: {
+        ...source.practice,
+        positionMs: position.songSourceMs,
+        loopEnabled: false,
+        loopStartMs: null,
+        loopEndMs: null,
+        masterGainDb: hasRehearsalSolo ? -60 : source.practice.masterGainDb
+      }
+    }
+    await this.songEngine.load(song, configuration.outputDeviceId, configuration.latencyMode)
+    if (generation !== this.generation) return false
+    this.setOverlayDelay(this.songEngine.outputLatencySeconds)
+    const latest = rehearsalTimelinePosition(configuration.timeline, this.currentMs)
+    this.songEngine.seek(latest.segment?.id === segment.id ? latest.songSourceMs : position.songSourceMs)
+    this.currentSegmentId = segment.id
+    const started = await this.songEngine.play(0)
+    if (!started) return false
+    this.preloadNextSong(segment.endMs)
+    return true
   }
 
   private monitor(): void {
@@ -228,7 +252,8 @@ export class RehearsalAudioEngine {
       if (current.segment?.id !== previous.segment?.id) {
         this.clockPositionMs = this.currentMs
         this.clockStartedAt = performance.now()
-        void this.prepareCurrentSegment(this.generation).then(() => {
+        void this.prepareCurrentSegment(this.generation).then((prepared) => {
+          if (!prepared || !this.playing) return
           this.clockPositionMs = this.currentMs
           this.clockStartedAt = performance.now()
         })
@@ -286,6 +311,9 @@ export class RehearsalAudioEngine {
     this.overlays.clear()
     this.overlayContext ??= new AudioContext({ latencyHint: configuration.latencyMode })
     this.overlayMaster ??= this.overlayContext.createGain()
+    this.overlayDelay ??= typeof this.overlayContext.createDelay === 'function'
+      ? this.overlayContext.createDelay(2)
+      : null
     try {
       const selector = this.overlayContext as AudioContext & { setSinkId?: (deviceId: string) => Promise<void> }
       if (selector.setSinkId) await selector.setSinkId(configuration.outputDeviceId)
@@ -293,7 +321,8 @@ export class RehearsalAudioEngine {
       // The song engine reports device selection failures; keep overlays on the default output.
     }
     if (!this.overlayMasterConnected) {
-      this.overlayMaster.connect(this.overlayContext.destination)
+      if (this.overlayDelay) this.overlayMaster.connect(this.overlayDelay).connect(this.overlayContext.destination)
+      else this.overlayMaster.connect(this.overlayContext.destination)
       this.overlayMasterConnected = true
     }
     const matching = configuration.recordingTracks.flatMap((track) => {
@@ -320,6 +349,14 @@ export class RehearsalAudioEngine {
     for (const overlay of this.overlays.values()) {
       try { overlay.element.currentTime = this.currentMs / 1000 } catch { /* media metadata is still loading */ }
     }
+  }
+
+  private setOverlayDelay(seconds: number): void {
+    if (!this.overlayContext || !this.overlayDelay) return
+    const value = Number.isFinite(seconds) ? Math.max(0, Math.min(1.99, seconds)) : 0
+    const now = this.overlayContext.currentTime
+    this.overlayDelay.delayTime.cancelScheduledValues(now)
+    this.overlayDelay.delayTime.setValueAtTime(value, now)
   }
 
   private playOverlays(): void {
@@ -351,6 +388,7 @@ export class RehearsalAudioEngine {
       ...song.recordingTracks.flatMap((track) => {
         const take = song.recordingTakes.find((candidate) => candidate.id === track.activeTakeId)
         return take && Math.abs(take.playbackRate - song.practice.playbackRate) < 0.0001
+          && (take.pitchSemitones ?? 0) === (song.practice.pitchSemitones ?? 0)
           ? [take.previewMediaUrl]
           : []
       })

@@ -112,6 +112,26 @@ const USER_ERROR_MESSAGES: ReadonlyArray<{ pattern: RegExp; message: string }> =
     message: '录音速度与当前速度不一致，请切回录制时的速度'
   },
   {
+    pattern: /RECORDING_TAKE_PITCH_MISMATCH/,
+    message: '录音调性与当前升降调不一致，请切回录制时的调性'
+  },
+  {
+    pattern: /SIGNALSMITH_PITCH_SHIFT_FAILED|PITCH_BUS_RENDER_FAILED|PITCH_SEMITONES_OUT_OF_RANGE/,
+    message: '升降调处理失败，请重试或暂时导出原调'
+  },
+  {
+    pattern: /KEY_DETECTION_NO_AUDIO/,
+    message: '没有可用于调性识别的非鼓音轨'
+  },
+  {
+    pattern: /KEY_DETECTION_UNSTABLE/,
+    message: '这首歌的调性不够稳定，暂时无法可靠识别；您仍可手动选择'
+  },
+  {
+    pattern: /KEY_DETECTION_DECODE_FAILED/,
+    message: '歌曲调分析失败，请检查分轨文件后重试'
+  },
+  {
     pattern: /ACTIVE_RECORDING_TAKE_MISSING/,
     message: '所选录音已不存在，请刷新后重试'
   },

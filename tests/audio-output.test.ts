@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { setAudioContextOutputDevice } from '../src/renderer/src/audio-engine.js'
+import {
+  setAudioContextOutputDevice,
+  setAudioContextOutputDeviceOrDefault
+} from '../src/renderer/src/audio-engine.js'
 
 describe('Web Audio output routing', () => {
   it('sets the output on the shared AudioContext rather than an individual media element', async () => {
@@ -22,5 +25,22 @@ describe('Web Audio output routing', () => {
   it('does not silently fall back to the default output when explicit selection is unsupported', async () => {
     await expect(setAudioContextOutputDevice({}, 'usb-interface-output'))
       .rejects.toThrow('AUDIO_OUTPUT_DEVICE_SELECTION_UNSUPPORTED')
+  })
+
+  it('falls back to the system default while loading when a remembered output disappeared', async () => {
+    const setSinkId = vi.fn()
+      .mockRejectedValueOnce(new DOMException('Device not found', 'NotFoundError'))
+      .mockResolvedValueOnce(undefined)
+
+    await expect(setAudioContextOutputDeviceOrDefault({ setSinkId }, 'disconnected-output'))
+      .resolves.toBe('')
+    expect(setSinkId.mock.calls).toEqual([['disconnected-output'], ['']])
+  })
+
+  it('still reports an error when even the system default output cannot be selected', async () => {
+    const setSinkId = vi.fn().mockRejectedValue(new DOMException('No output', 'NotFoundError'))
+
+    await expect(setAudioContextOutputDeviceOrDefault({ setSinkId }, 'disconnected-output'))
+      .rejects.toThrow('No output')
   })
 })

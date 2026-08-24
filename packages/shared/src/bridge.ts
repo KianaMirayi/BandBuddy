@@ -10,6 +10,8 @@ import type {
   ImportStemsOptions,
   JobRecord,
   MediaCapabilities,
+  MusicalKeyAnalysis,
+  MusicalKeySource,
   PracticeState,
   RecordingDeviceInfo,
   RecordingMeter,
@@ -45,7 +47,7 @@ export interface BandBuddyApi {
     importSource(options: ImportSourceOptions): Promise<ImportResult>
     importStems(options: ImportStemsOptions): Promise<ImportResult>
     importLyrics(songId: string): Promise<SongDetail | null>
-    update(input: { id: string; patch: { title?: string; artist?: string; favorite?: boolean; bpm?: number | null; beatOffsetMs?: number; musicalKey?: string | null; timeSignature?: string | null } }): Promise<SongDetail>
+    update(input: { id: string; patch: { title?: string; artist?: string; favorite?: boolean; bpm?: number | null; beatOffsetMs?: number; musicalKey?: string | null; musicalKeySource?: MusicalKeySource | null; timeSignature?: string | null } }): Promise<SongDetail>
     delete(songId: string): Promise<void>
     openLocation(songId: string): Promise<void>
     reSeparate(songId: string): Promise<string>
@@ -73,11 +75,13 @@ export interface BandBuddyApi {
     get(): Promise<AppSettings>
     chooseDataRoot(currentLibraryRoot?: string): Promise<StoragePaths | null>
     update(settings: AppSettings): Promise<AppSettings>
+    openDebugLog(): Promise<void>
     onChanged(callback: (settings: AppSettings) => void): Unsubscribe
   }
   media: {
     capabilities(): Promise<MediaCapabilities>
     detectBpm(songId: string): Promise<BpmDetectionResult>
+    detectKey(songId: string): Promise<MusicalKeyAnalysis>
     onChanged(callback: (capabilities: MediaCapabilities) => void): Unsubscribe
   }
   export: {

@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from 'electron'
-import { dialog, ipcMain } from 'electron'
+import { dialog, ipcMain, shell } from 'electron'
 import path from 'node:path'
 import { z } from 'zod'
 import {
@@ -32,6 +32,7 @@ import type { RecordingService } from './recording.js'
 import type { DesktopLyricsWindow } from './desktop-lyrics.js'
 import type { RehearsalService } from './rehearsals.js'
 import type { RehearsalRecordingService } from './rehearsal-recording.js'
+import type { Logger } from './logger.js'
 
 interface IpcServices {
   getWindow: () => BrowserWindow | null
@@ -45,6 +46,7 @@ interface IpcServices {
   rehearsals: RehearsalService
   rehearsalRecording: RehearsalRecordingService
   desktopLyrics: DesktopLyricsWindow
+  logger: Logger
   isTrustedUrl: (url: string) => boolean
   emitSettings: () => void
   emitLibrary: () => void
@@ -55,7 +57,16 @@ export function registerIpc(services: IpcServices): void {
   const handle = <T>(channel: string, callback: (event: IpcMainInvokeEvent, input: T) => unknown | Promise<unknown>): void => {
     ipcMain.handle(channel, async (event, input: T) => {
       assertTrustedSender(event, services.getWindow(), services.isTrustedUrl)
-      return await callback(event, input)
+      const startedAt = Date.now()
+      services.logger.capture('debug', 'ipc invoke started', { channel })
+      try {
+        const result = await callback(event, input)
+        services.logger.capture('debug', 'ipc invoke completed', { channel, durationMs: Date.now() - startedAt })
+        return result
+      } catch (error) {
+        services.logger.capture('error', 'ipc invoke failed', { channel, durationMs: Date.now() - startedAt, error })
+        throw error
+      }
     })
   }
 
@@ -127,12 +138,17 @@ export function registerIpc(services: IpcServices): void {
       modelRoot: path.join(runtimeRoot, 'models')
     }
   })
+  handle(IPC.settingsOpenDebugLog, async () => {
+    const error = await shell.openPath(services.logger.ensureDebugLog())
+    if (error) throw new Error(`DEBUG_LOG_OPEN_FAILED: ${error}`)
+  })
   handle(IPC.settingsUpdate, (_event, input) => {
     const settings = appSettingsSchema.parse(input)
     for (const directory of [settings.libraryRoot, settings.runtimeRoot, settings.modelRoot]) {
       mkdirSync(directory, { recursive: true })
     }
     const saved = services.database.saveSettings(settings)
+    services.logger.setDebugMode(saved.debugMode)
     services.emitSettings()
     void services.runtime.detect()
     return saved
@@ -140,6 +156,11 @@ export function registerIpc(services: IpcServices): void {
 
   handle(IPC.mediaCapabilities, () => services.media.capabilities())
   handle(IPC.mediaDetectBpm, (_event, input) => services.media.detectBpm(uuidSchema.parse(input)))
+  handle(IPC.mediaDetectKey, async (_event, input) => {
+    const result = await services.media.detectKey(uuidSchema.parse(input))
+    services.emitLibrary()
+    return result
+  })
 
   handle(IPC.exportChoosePath, async (_event, input) => {
     const parsed = z.object({

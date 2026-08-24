@@ -124,6 +124,8 @@ export function RehearsalRoom({
   const dirty = useRef(false)
   const booted = useRef(false)
   const recordingWasActive = useRef(false)
+  const playbackStarting = useRef(false)
+  const playbackConfigurationQueue = useRef<Promise<void>>(Promise.resolve())
   const dragSourceRef = useRef<DragSource | null>(null)
   const dropTargetRef = useRef<DropTarget | null>(null)
   const dragCleanup = useRef<() => void>(() => undefined)
@@ -364,8 +366,9 @@ export function RehearsalRoom({
       setPlaying(isPlaying)
     })
     engine.current.onEnded(() => setPlaying(false))
+    engine.current.onError(() => onToast('实时升降调初始化失败，当前歌曲保持原调'))
     return () => engine.current.destroy()
-  }, [])
+  }, [onToast])
 
   const configurePlayback = useCallback(async (
     nextTimeline: RehearsalTimeline,
@@ -373,18 +376,23 @@ export function RehearsalRoom({
     source = rehearsalRef.current
   ): Promise<void> => {
     if (!source) return
-    await engine.current.configure({
+    const configuration = {
       timeline: nextTimeline,
       songs: [...details.values()],
       recordingTracks: source.recordingTracks,
       recordingTakes: source.recordingTakes,
       outputDeviceId: settings?.audioOutputDeviceId ?? '',
       latencyMode: settings?.latencyMode ?? 'interactive'
-    })
+    }
+    const operation = playbackConfigurationQueue.current
+      .catch(() => undefined)
+      .then(() => engine.current.configure(configuration))
+    playbackConfigurationQueue.current = operation.catch(() => undefined)
+    await operation
   }, [settings?.audioOutputDeviceId, settings?.latencyMode])
 
   useEffect(() => {
-    if (!rehearsal || playing || recordingActive) return
+    if (!rehearsal || playing || recordingActive || playbackStarting.current) return
     void configurePlayback(timeline, songDetails).catch(() => {
       onToast('无法准备排练音频，请检查歌曲文件和输出设备')
     })
@@ -702,18 +710,21 @@ export function RehearsalRoom({
   }
 
   const togglePlayback = async (): Promise<void> => {
-    if (recordingActive) return
+    if (recordingActive || playbackStarting.current) return
     if (playing) {
       engine.current.pause()
       setPlaying(false)
       return
     }
+    playbackStarting.current = true
     try {
       const plan = await refreshBeforePlayback()
       if (!plan) return
-      await engine.current.play()
+      if (!await engine.current.play()) throw new Error('REHEARSAL_PLAYBACK_NOT_STARTED')
     } catch (error) {
       onToast(toUserErrorMessage(error, '排练播放失败，请检查歌曲文件或输出设备'))
+    } finally {
+      playbackStarting.current = false
     }
   }
 

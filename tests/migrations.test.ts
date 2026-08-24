@@ -17,5 +17,8 @@ describe('SQLite migration contract', () => {
     expect(source).toContain('beat_offset_ms REAL NOT NULL DEFAULT 0')
     expect(source).toContain('lyrics_lrc TEXT')
     expect(source).toContain('lyrics_file_name TEXT')
+    expect(source).toContain('pitch_semitones INTEGER NOT NULL DEFAULT 0')
+    expect(source).toContain('key_analysis_json TEXT')
+    expect(source).toContain("musical_key_source TEXT CHECK(musical_key_source IN ('detected', 'manual'))")
   })
 })

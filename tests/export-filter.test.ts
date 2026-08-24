@@ -39,4 +39,25 @@ describe('FFmpeg mix filter', () => {
     })
     expect(slowFilter).toContain('atempo=0.5000,atempo=0.5000,atempo=0.8000')
   })
+
+  it('does not trim, retime or re-apply gain to a preprocessed pitch bus', () => {
+    const filter = buildMixFilter({
+      tracks: [{
+        inputIndex: 0,
+        state: { stemType: 'vocals', gainDb: -6, muted: false, solo: false },
+        preprocessed: true
+      }],
+      masterGainDb: 0,
+      playbackRate: 0.8,
+      loopStartMs: 1_000,
+      loopEndMs: 4_000,
+      sourceDurationMs: 10_000
+    })
+    const pitchBusFilter = filter.split(';')[0]!
+    expect(pitchBusFilter).toContain('aresample=44100')
+    expect(pitchBusFilter).not.toContain('atrim=')
+    expect(pitchBusFilter).not.toContain('atempo=')
+    expect(pitchBusFilter).not.toContain('volume=')
+    expect(filter).toContain('atrim=end=3.750000')
+  })
 })

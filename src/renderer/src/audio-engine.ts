@@ -1,4 +1,19 @@
-import { STEM_ORDER, dbToGain, type PracticeState, type RecordingTake, type SongDetail, type StemType } from '@shared/domain.js'
+import {
+  PITCH_SEMITONES_MAX,
+  PITCH_SEMITONES_MIN,
+  STEM_ORDER,
+  dbToGain,
+  type PracticeState,
+  type RecordingTake,
+  type SongDetail,
+  type StemType
+} from '@shared/domain.js'
+import type { SignalsmithStretchNode } from 'signalsmith-stretch'
+
+const SIGNALSMITH_WORKLET_MODULE_URL = new URL(
+  '../../../node_modules/signalsmith-stretch/SignalsmithStretch.mjs',
+  import.meta.url
+).href
 
 export interface NextMetronomeBeat {
   beatIndex: number
@@ -7,6 +22,11 @@ export interface NextMetronomeBeat {
 }
 
 export const TAKE_PREVIEW_PLAYBACK_RATE = 1
+
+export function recordingTakeMatchesPractice(take: RecordingTake, practice: PracticeState): boolean {
+  return Math.abs(take.playbackRate - practice.playbackRate) < 0.0001
+    && (take.pitchSemitones ?? 0) === (practice.pitchSemitones ?? 0)
+}
 
 export function takePreviewTimeSeconds(songPositionMs: number, recordedPlaybackRate: number): number {
   return songPositionMs / recordedPlaybackRate / 1000
@@ -62,10 +82,35 @@ export async function setAudioContextOutputDevice(
   await sinkSelector.setSinkId(deviceId)
 }
 
+export async function setAudioContextOutputDeviceOrDefault(
+  context: object | null,
+  deviceId: string
+): Promise<string> {
+  try {
+    await setAudioContextOutputDevice(context, deviceId)
+    return deviceId
+  } catch (error) {
+    if (!deviceId) throw error
+    await setAudioContextOutputDevice(context, '')
+    return ''
+  }
+}
+
 export class MultiTrackAudioEngine {
   private context: AudioContext | null = null
   private master: GainNode | null = null
   private compressor: DynamicsCompressorNode | null = null
+  private harmonicBus: GainNode | null = null
+  private dryDelay: DelayNode | null = null
+  private dryGain: GainNode | null = null
+  private wetGain: GainNode | null = null
+  private bypassDelay: DelayNode | null = null
+  private pitchNode: SignalsmithStretchNode | null = null
+  private pitchNodePromise: Promise<SignalsmithStretchNode> | null = null
+  private pitchTransition: Promise<void> = Promise.resolve()
+  private pitchGeneration = 0
+  private pitchLatencySeconds = 0
+  private pitchWetActive = false
   private tracks = new Map<StemType, TrackAudio>()
   private recordings = new Map<string, RecordingTrackAudio>()
   private song: SongDetail | null = null
@@ -73,6 +118,7 @@ export class MultiTrackAudioEngine {
   private frame = 0
   private timeListener: ((milliseconds: number) => void) | null = null
   private endedListener: (() => void) | null = null
+  private errorListener: ((error: unknown) => void) | null = null
   private playbackGeneration = 0
   private countInTimer: number | null = null
   private countInResolve: (() => void) | null = null
@@ -84,6 +130,10 @@ export class MultiTrackAudioEngine {
 
   onTime(callback: (milliseconds: number) => void): void { this.timeListener = callback }
   onEnded(callback: () => void): void { this.endedListener = callback }
+  onError(callback: (error: unknown) => void): void { this.errorListener = callback }
+  get outputLatencySeconds(): number {
+    return this.pitchWetActive ? this.pitchLatencySeconds : 0
+  }
 
   async load(song: SongDetail, outputDeviceId = '', latencyMode: AudioContextLatencyCategory = 'balanced'): Promise<void> {
     this.pause()
@@ -91,7 +141,7 @@ export class MultiTrackAudioEngine {
     this.song = song
     this.practice = song.practice
     await this.ensureContext(latencyMode)
-    await this.setOutputDevice(outputDeviceId)
+    await setAudioContextOutputDeviceOrDefault(this.context, outputDeviceId)
     const stemByType = new Map(song.stems.map((stem) => [stem.type, stem]))
     for (const type of STEM_ORDER) {
       const element = new Audio()
@@ -107,7 +157,7 @@ export class MultiTrackAudioEngine {
       element.currentTime = song.practice.positionMs / 1000
       const source = this.context!.createMediaElementSource(element)
       const gain = this.context!.createGain()
-      source.connect(gain).connect(this.master!)
+      source.connect(gain).connect(type === 'drums' ? this.bypassDelay! : this.harmonicBus!)
       this.tracks.set(type, { element, source, gain })
     }
     for (const recordingTrack of song.recordingTracks) {
@@ -125,16 +175,18 @@ export class MultiTrackAudioEngine {
       element.currentTime = takePreviewTimeSeconds(song.practice.positionMs, take.playbackRate)
       const source = this.context!.createMediaElementSource(element)
       const gain = this.context!.createGain()
-      source.connect(gain).connect(this.master!)
+      source.connect(gain).connect(this.bypassDelay!)
       this.recordings.set(recordingTrack.id, { element, source, gain, take })
     }
     this.applyPractice(song.practice, true)
+    await this.pitchTransition
   }
 
   async play(countInBeats: 0 | 4 | 8 = 0, onCountIn?: (remaining: number) => void): Promise<boolean> {
     if (!this.song || !this.practice) return false
     const generation = ++this.playbackGeneration
     await this.ensureContext()
+    await this.pitchTransition
     if (this.context!.state === 'suspended') await this.context!.resume()
     if (generation !== this.playbackGeneration) return false
     this.stopMetronome()
@@ -157,7 +209,7 @@ export class MultiTrackAudioEngine {
     const time = anchor.currentTime
     for (const { element } of active) if (Math.abs(element.currentTime - time) > 0.01) element.currentTime = time
     for (const recording of this.recordings.values()) {
-      if (!this.takeMatchesRate(recording.take)) continue
+      if (!this.takeMatchesPractice(recording.take)) continue
       recording.element.currentTime = takePreviewTimeSeconds(time * 1000, recording.take.playbackRate)
       active.push(recording)
     }
@@ -204,12 +256,14 @@ export class MultiTrackAudioEngine {
   }
 
   applyPractice(practice: PracticeState, immediate = false): void {
+    const pitchChanged = (this.practice?.pitchSemitones ?? 0) !== (practice.pitchSemitones ?? 0)
     const metronomeChanged = this.practice?.metronomeEnabled !== practice.metronomeEnabled
       || this.practice?.metronomeBpm !== practice.metronomeBpm
       || this.practice?.metronomeOffsetMs !== practice.metronomeOffsetMs
       || this.practice?.playbackRate !== practice.playbackRate
     const mediaPlaying = Boolean(this.anchor() && !this.anchor()!.paused)
     this.practice = practice
+    if (immediate || pitchChanged) this.queuePitchShift(practice.pitchSemitones ?? 0, immediate, mediaPlaying)
     const now = this.context?.currentTime ?? 0
     const ramp = immediate ? 0 : 0.035
     if (this.master) {
@@ -233,14 +287,14 @@ export class MultiTrackAudioEngine {
     for (const recordingState of recordingStates) {
       const recording = this.recordings.get(recordingState.id)
       if (!recording) continue
-      const matchesRate = this.takeMatchesRate(recording.take)
-      const audible = !recordingState.muted && (!hasSolo || recordingState.solo) && matchesRate
+      const matchesPractice = this.takeMatchesPractice(recording.take)
+      const audible = !recordingState.muted && (!hasSolo || recordingState.solo) && matchesPractice
       recording.gain.gain.cancelScheduledValues(now)
       recording.gain.gain.setValueAtTime(recording.gain.gain.value, now)
       recording.gain.gain.linearRampToValueAtTime(audible ? dbToGain(recordingState.gainDb) : 0, now + ramp)
       recording.element.playbackRate = TAKE_PREVIEW_PLAYBACK_RATE
       recording.element.preservesPitch = true
-      if (!matchesRate) recording.element.pause()
+      if (!matchesPractice) recording.element.pause()
       else if (mediaPlaying && recording.element.paused) {
         const anchor = this.anchor()
         if (anchor) {
@@ -259,16 +313,173 @@ export class MultiTrackAudioEngine {
     await setAudioContextOutputDevice(this.context, deviceId)
   }
 
+  private queuePitchShift(semitones: number, immediate: boolean, mediaPlaying: boolean): void {
+    const normalized = Number.isFinite(semitones)
+      ? Math.max(PITCH_SEMITONES_MIN, Math.min(PITCH_SEMITONES_MAX, Math.round(semitones)))
+      : 0
+    const generation = ++this.pitchGeneration
+    const transition = this.applyPitchShift(normalized, immediate, mediaPlaying, generation)
+    this.pitchTransition = transition.catch((error: unknown) => {
+      if (generation !== this.pitchGeneration) return
+      const now = this.context?.currentTime ?? 0
+      this.pitchWetActive = false
+      void this.pitchNode?.schedule({ active: false, output: now, outputTime: now }).catch(() => undefined)
+      this.crossfadePitch(false, now, immediate ? 0 : 0.035)
+      if (this.dryDelay) this.setDelay(this.dryDelay, 0, now + (immediate ? 0 : 0.035))
+      if (this.bypassDelay) this.setDelay(this.bypassDelay, 0, now + (immediate ? 0 : 0.035))
+      this.errorListener?.(error)
+    })
+  }
+
+  private async applyPitchShift(
+    semitones: number,
+    immediate: boolean,
+    mediaPlaying: boolean,
+    generation: number
+  ): Promise<void> {
+    const context = this.context
+    if (!context || !this.dryDelay || !this.dryGain || !this.wetGain || !this.bypassDelay) return
+
+    if (semitones === 0) {
+      const now = context.currentTime
+      const ramp = immediate ? 0 : 0.035
+      if (this.pitchNode) {
+        const output = now + (mediaPlaying && !immediate ? this.pitchLatencySeconds : 0)
+        await this.pitchNode.schedule({
+          active: false,
+          output,
+          outputTime: output
+        })
+      }
+      if (generation !== this.pitchGeneration || context !== this.context) return
+      this.pitchWetActive = false
+      this.crossfadePitch(false, now, ramp)
+      const resetAt = now + ramp
+      this.setDelay(this.dryDelay, 0, resetAt)
+      this.setDelay(this.bypassDelay, 0, resetAt)
+      return
+    }
+
+    const node = await this.ensurePitchNode()
+    if (generation !== this.pitchGeneration || context !== this.context) return
+    const now = context.currentTime
+    const output = now + (mediaPlaying && !immediate ? this.pitchLatencySeconds : 0)
+    this.setDelay(this.dryDelay, this.pitchLatencySeconds, now)
+    this.setDelay(this.bypassDelay, this.pitchLatencySeconds, now)
+    await node.schedule({
+      active: true,
+      semitones,
+      tonalityHz: 8000,
+      formantSemitones: 0,
+      formantCompensation: true,
+      formantBaseHz: 0,
+      output,
+      outputTime: output
+    })
+    if (generation !== this.pitchGeneration || context !== this.context) return
+    this.pitchWetActive = true
+    this.crossfadePitch(true, output, immediate ? 0 : 0.035)
+  }
+
+  private async ensurePitchNode(): Promise<SignalsmithStretchNode> {
+    if (this.pitchNode) return this.pitchNode
+    if (this.pitchNodePromise) return this.pitchNodePromise
+    const context = this.context
+    if (!context || !context.audioWorklet || typeof AudioWorkletNode !== 'function' || !this.harmonicBus || !this.wetGain) {
+      throw new Error('SIGNALSMITH_AUDIOWORKLET_UNAVAILABLE')
+    }
+    const harmonicBus = this.harmonicBus
+    const wetGain = this.wetGain
+    this.pitchNodePromise = import('signalsmith-stretch').then(async ({ default: createSignalsmithStretch }) => {
+      const factory = createSignalsmithStretch as typeof createSignalsmithStretch & { moduleUrl?: string }
+      // The package's default Blob URL is rejected by Electron's strict CSP.
+      // Point AudioWorklet at the same, bundled module on our trusted file origin.
+      factory.moduleUrl = SIGNALSMITH_WORKLET_MODULE_URL
+      const node = await factory(context, {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+        channelCount: 2,
+        channelCountMode: 'explicit',
+        channelInterpretation: 'speakers'
+      })
+      if (context !== this.context || harmonicBus !== this.harmonicBus) {
+        node.disconnect()
+        throw new Error('SIGNALSMITH_CONTEXT_CHANGED')
+      }
+      harmonicBus.connect(node)
+      node.connect(wetGain)
+      try {
+        const now = context.currentTime
+        await node.start({
+          active: true,
+          semitones: 0,
+          tonalityHz: 8000,
+          formantSemitones: 0,
+          formantCompensation: true,
+          formantBaseHz: 0,
+          output: now,
+          outputTime: now
+        })
+        const latency = await node.latency()
+        if (!Number.isFinite(latency) || latency < 0 || latency >= 2) {
+          throw new Error('SIGNALSMITH_LATENCY_INVALID')
+        }
+        this.pitchLatencySeconds = latency
+        this.pitchNode = node
+        return node
+      } catch (error) {
+        harmonicBus.disconnect(node)
+        node.disconnect()
+        throw error
+      }
+    }).finally(() => {
+      this.pitchNodePromise = null
+    })
+    return this.pitchNodePromise
+  }
+
+  private crossfadePitch(enabled: boolean, at: number, duration: number): void {
+    if (!this.context || !this.dryGain || !this.wetGain) return
+    const now = this.context.currentTime
+    for (const [gain, target] of [[this.dryGain, enabled ? 0 : 1], [this.wetGain, enabled ? 1 : 0]] as const) {
+      gain.gain.cancelScheduledValues(now)
+      gain.gain.setValueAtTime(gain.gain.value, now)
+      if (at > now) gain.gain.setValueAtTime(gain.gain.value, at)
+      if (duration > 0) gain.gain.linearRampToValueAtTime(target, at + duration)
+      else gain.gain.setValueAtTime(target, at)
+    }
+  }
+
+  private setDelay(node: DelayNode, seconds: number, at: number): void {
+    const now = this.context?.currentTime ?? at
+    node.delayTime.cancelScheduledValues(now)
+    node.delayTime.setValueAtTime(node.delayTime.value, now)
+    node.delayTime.setValueAtTime(seconds, Math.max(now, at))
+  }
+
   private async ensureContext(latencyHint: AudioContextLatencyCategory = 'balanced'): Promise<void> {
     if (this.context) return
     this.context = new AudioContext({ latencyHint })
     this.master = this.context.createGain()
     this.compressor = this.context.createDynamicsCompressor()
+    this.harmonicBus = this.context.createGain()
+    this.dryDelay = this.context.createDelay(2)
+    this.dryGain = this.context.createGain()
+    this.wetGain = this.context.createGain()
+    this.bypassDelay = this.context.createDelay(2)
+    this.dryGain.gain.value = 1
+    this.wetGain.gain.value = 0
+    this.dryDelay.delayTime.value = 0
+    this.bypassDelay.delayTime.value = 0
     this.compressor.threshold.value = -1
     this.compressor.knee.value = 0
     this.compressor.ratio.value = 20
     this.compressor.attack.value = 0.003
     this.compressor.release.value = 0.08
+    this.harmonicBus.connect(this.dryDelay).connect(this.dryGain).connect(this.master)
+    this.wetGain.connect(this.master)
+    this.bypassDelay.connect(this.master)
     this.master.connect(this.compressor).connect(this.context.destination)
   }
 
@@ -300,7 +511,7 @@ export class MultiTrackAudioEngine {
   }
 
   private startMetronome(): void {
-    if (!this.context || !this.master || !this.practice) return
+    if (!this.context || !this.bypassDelay || !this.practice) return
     const anchor = this.anchor()
     if (!anchor) return
     this.stopMetronome()
@@ -336,7 +547,7 @@ export class MultiTrackAudioEngine {
   }
 
   private scheduleMetronomeClick(at: number, accented: boolean): void {
-    if (!this.context || !this.master) return
+    if (!this.context || !this.bypassDelay) return
     const oscillator = this.context.createOscillator()
     const gain = this.context.createGain()
     oscillator.type = 'sine'
@@ -344,7 +555,7 @@ export class MultiTrackAudioEngine {
     gain.gain.setValueAtTime(0.0001, at)
     gain.gain.exponentialRampToValueAtTime(accented ? 0.28 : 0.18, at + 0.003)
     gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.055)
-    oscillator.connect(gain).connect(this.master)
+    oscillator.connect(gain).connect(this.bypassDelay)
     oscillator.onended = () => {
       this.metronomeNodes.delete(oscillator)
       oscillator.disconnect()
@@ -377,7 +588,7 @@ export class MultiTrackAudioEngine {
       else element.playbackRate = practice?.playbackRate ?? 1
     }
     for (const recording of this.recordings.values()) {
-      if (!this.takeMatchesRate(recording.take) || recording.element.paused) continue
+      if (!this.takeMatchesPractice(recording.take) || recording.element.paused) continue
       const drift = recording.element.currentTime * recording.take.playbackRate - anchorTime
       if (Math.abs(drift) > 0.03) recording.element.currentTime = takePreviewTimeSeconds(anchorTime * 1000, recording.take.playbackRate)
       else if (Math.abs(drift) > 0.012) recording.element.playbackRate = TAKE_PREVIEW_PLAYBACK_RATE * (drift > 0 ? 0.985 : 1.015)
@@ -407,8 +618,8 @@ export class MultiTrackAudioEngine {
     this.recordings.clear()
   }
 
-  private takeMatchesRate(take: RecordingTake): boolean {
-    return Boolean(this.practice && Math.abs(take.playbackRate - this.practice.playbackRate) < 0.0001)
+  private takeMatchesPractice(take: RecordingTake): boolean {
+    return Boolean(this.practice && recordingTakeMatchesPractice(take, this.practice))
   }
 
   unload(): void {
@@ -420,8 +631,20 @@ export class MultiTrackAudioEngine {
 
   destroy(): void {
     this.pause()
+    this.pitchGeneration += 1
     this.destroyTracks()
     void this.context?.close()
     this.context = null
+    this.master = null
+    this.compressor = null
+    this.harmonicBus = null
+    this.dryDelay = null
+    this.dryGain = null
+    this.wetGain = null
+    this.bypassDelay = null
+    this.pitchNode = null
+    this.pitchNodePromise = null
+    this.pitchTransition = Promise.resolve()
+    this.pitchWetActive = false
   }
 }

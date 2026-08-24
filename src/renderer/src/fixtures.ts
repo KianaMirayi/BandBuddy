@@ -24,6 +24,8 @@ export function fixtureDetail(song: SongSummary): SongDetail {
     bpm: song.title === 'Hotel California' ? 74 : null,
     beatOffsetMs: 0,
     musicalKey: song.title === 'Hotel California' ? 'Em' : null,
+    musicalKeySource: song.title === 'Hotel California' ? 'manual' : null,
+    keyAnalysis: null,
     timeSignature: song.title === 'Hotel California' ? '4/4' : null,
     sourceFormat: 'flac',
     sampleRate: 44100,

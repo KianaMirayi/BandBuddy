@@ -44,6 +44,7 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
 let database: BandBuddyDatabase | null = null
+let logger: Logger | null = null
 let scheduler: JobScheduler | null = null
 let recording: RecordingService | null = null
 let rehearsalRecording: RehearsalRecordingService | null = null
@@ -81,6 +82,17 @@ function createWindow(paths: AppPaths): BrowserWindow {
   window.webContents.on('will-navigate', (event, url) => {
     if (!trustedRendererUrl(url)) event.preventDefault()
   })
+  window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const logLevel = level >= 3 ? 'error' : level === 2 ? 'warn' : level === 0 ? 'debug' : 'info'
+    logger?.capture(logLevel, 'renderer console', { message, line, sourceId })
+  })
+  window.webContents.on('preload-error', (_event, preloadPath, error) => {
+    logger?.capture('error', 'renderer preload failed', { preloadPath, error })
+  })
+  window.webContents.on('render-process-gone', (_event, details) => {
+    logger?.capture('error', 'renderer process exited', details)
+  })
+  window.webContents.on('unresponsive', () => logger?.capture('warn', 'renderer became unresponsive'))
   window.once('ready-to-show', () => window.show())
   window.on('hide', () => emit(IPC.eventWindowHidden))
   window.on('close', (event) => {
@@ -175,18 +187,20 @@ else {
   void app.whenReady().then(async () => {
     const paths = new AppPaths()
     paths.ensure()
-    const logger = new Logger(paths.logsRoot)
     database = new BandBuddyDatabase(paths)
-    const media = new MediaService(paths, database, logger)
+    const applicationLogger = new Logger(paths.logsRoot, database.getSettings().debugMode)
+    logger = applicationLogger
+    const media = new MediaService(paths, database, applicationLogger)
     media.registerProtocol()
-    const runtime = new RuntimeManager(paths, database, logger)
+    const runtime = new RuntimeManager(paths, database, applicationLogger)
     mainWindow = createWindow(paths)
     const developmentLyricsUrl = process.env.ELECTRON_RENDERER_URL
       ? new URL('lyrics.html', process.env.ELECTRON_RENDERER_URL.endsWith('/') ? process.env.ELECTRON_RENDERER_URL : `${process.env.ELECTRON_RENDERER_URL}/`).href
       : null
     desktopLyrics = new DesktopLyricsWindow({
       preloadPath: join(currentDirectory, '../preload/lyrics.cjs'),
-      rendererUrl: developmentLyricsUrl ?? lyricsRendererFileUrl
+      rendererUrl: developmentLyricsUrl ?? lyricsRendererFileUrl,
+      logger: applicationLogger
     })
     createTray(paths)
 
@@ -195,17 +209,17 @@ else {
     const emitSettings = (): void => emit(IPC.eventSettingsChanged, database?.getSettings())
     const emitMedia = (): void => emit(IPC.eventMediaChanged, media.capabilities())
     const emitRehearsals = (): void => emit(IPC.eventRehearsalsChanged)
-    scheduler = new JobScheduler(paths, database, runtime, media, logger, emitTasks, emitLibrary)
-    const exporter = new ExportService(paths, database, media, logger, emitTasks, () => scheduler?.kick())
+    scheduler = new JobScheduler(paths, database, runtime, media, applicationLogger, emitTasks, emitLibrary)
+    const exporter = new ExportService(paths, database, media, applicationLogger, emitTasks, () => scheduler?.kick())
     scheduler.setExporter(exporter)
-    const imports = new ImportService(paths, database, media, runtime, logger, () => { emitLibrary(); emitTasks() }, () => scheduler?.kick())
-    const audioHost = new AudioHostClient(paths, logger)
+    const imports = new ImportService(paths, database, media, runtime, applicationLogger, () => { emitLibrary(); emitTasks() }, () => scheduler?.kick())
+    const audioHost = new AudioHostClient(paths, applicationLogger)
     recording = new RecordingService(
       paths,
       database,
       media,
       audioHost,
-      logger,
+      applicationLogger,
       (state) => emit(IPC.eventRecordingState, state),
       (meter) => emit(IPC.eventRecordingMeter, meter),
       emitLibrary
@@ -216,7 +230,7 @@ else {
       database,
       media,
       audioHost,
-      logger,
+      applicationLogger,
       () => recording?.isActive() ?? false,
       (state) => emit(IPC.eventRehearsalRecordingState, state),
       (meter) => emit(IPC.eventRehearsalRecordingMeter, meter),
@@ -235,6 +249,7 @@ else {
       rehearsals,
       rehearsalRecording,
       desktopLyrics,
+      logger: applicationLogger,
       isTrustedUrl: trustedRendererUrl,
       emitSettings,
       emitLibrary,
@@ -246,7 +261,7 @@ else {
     scheduler.kick()
     void recording.recoverInterruptedSessions()
     void rehearsalRecording.recoverInterruptedSessions()
-    logger.info('application ready', { version: app.getVersion(), packaged: app.isPackaged })
+    applicationLogger.info('application ready', { version: app.getVersion(), packaged: app.isPackaged })
   })
 }
 

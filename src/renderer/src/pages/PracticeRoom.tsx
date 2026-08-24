@@ -21,6 +21,7 @@ import {
   moveTrackOrder,
   normalizeTrackOrder,
   STEM_META,
+  transposeMusicalKey,
   type PracticeState,
   type RecordingMeter,
   type RecordingState,
@@ -72,7 +73,7 @@ interface PracticeRoomProps {
     recordingTrackId: string,
     patch: Partial<Pick<RecordingTrackState, 'name' | 'gainDb' | 'muted' | 'solo'>>
   ): void
-  onUseTakeSpeed(rate: number): void
+  onUseTakePractice(rate: number, pitchSemitones: number): void
 }
 
 export function PracticeRoom(props: PracticeRoomProps): React.JSX.Element {
@@ -80,7 +81,7 @@ export function PracticeRoom(props: PracticeRoomProps): React.JSX.Element {
     song, practice, currentMs, playing, selectedStem, recordingState, recordingMeter, locked, backLabel = '返回曲库',
     onBack, onSeek, onPatch, onTrack, onSelected, onExport, onAddRecordingTrack, onEdit, onMore, onRecord,
     onStopRecording, onCancelRecording, onSelectTake, onUpdateTake, onDeleteTake,
-    onRecordingTrack, onUseTakeSpeed
+    onRecordingTrack, onUseTakePractice
   } = props
   const stems = new Map(song.stems.map((stem) => [stem.type, stem]))
   const recordingTracks = new Map(song.recordingTracks.map((track) => [track.id, track]))
@@ -182,6 +183,7 @@ export function PracticeRoom(props: PracticeRoomProps): React.JSX.Element {
       <button className="outline-button" disabled={locked} onClick={onExport}><Upload size={17} />导出</button>
       <button className="outline-button" disabled={locked} onClick={onAddRecordingTrack}><Plus size={17} />添加录音轨</button>
       <button className="outline-button" disabled={locked} onClick={onMore}><MoreHorizontal size={18} />更多</button>
+      {song.musicalKey && <div className="practice-key-badge"><Sparkles size={15} /><span><b>{practice.pitchSemitones === 0 ? song.musicalKey : `${song.musicalKey} → ${transposeMusicalKey(song.musicalKey, practice.pitchSemitones)}`}</b><small>{song.musicalKeySource === 'manual' ? '手动纠正' : song.keyAnalysis ? `识别 ${Math.round(song.keyAnalysis.confidence * 100)}%` : '歌曲调'}{song.keyAnalysis?.segments.some((segment) => segment.possibleModulation) ? ` · 可能转调 ${song.keyAnalysis.segments.filter((segment) => segment.possibleModulation).length} 处` : ''}</small></span></div>}
     </section>
 
     <div className="practice-workspace">
@@ -239,7 +241,7 @@ export function PracticeRoom(props: PracticeRoomProps): React.JSX.Element {
               onUpdateTake={onUpdateTake}
               onDeleteTake={onDeleteTake}
               onTrack={(patch) => onRecordingTrack(recordingTrack.id, patch)}
-              onUseTakeSpeed={onUseTakeSpeed}
+              onUseTakePractice={onUseTakePractice}
               onSeek={onSeek}
               onRange={(start, end) => onPatch({ loopStartMs: start, loopEndMs: end, loopEnabled: true })}
               onViewChange={(zoom, scroll) => onPatch({ zoom, scroll })}
@@ -369,7 +371,7 @@ interface RecordingTrackRowProps extends TrackDragProps {
   onUpdateTake(takeId: string, patch: { name?: string; alignmentOffsetMs?: number }): void
   onDeleteTake(takeId: string): void
   onTrack(patch: Partial<Pick<RecordingTrackState, 'name' | 'gainDb' | 'muted' | 'solo'>>): void
-  onUseTakeSpeed(rate: number): void
+  onUseTakePractice(rate: number, pitchSemitones: number): void
   onSeek(milliseconds: number): void
   onRange(start: number, end: number): void
   onViewChange(zoom: number, scroll: number): void
@@ -378,10 +380,13 @@ interface RecordingTrackRowProps extends TrackDragProps {
 function RecordingTrackRow(props: RecordingTrackRowProps): React.JSX.Element {
   const {
     song, recordingTrack: track, takes, practice, currentMs, state, meter, locked, onRecord, onStop, onCancel, onSelectTake,
-    onUpdateTake, onDeleteTake, onTrack, onUseTakeSpeed, onSeek, onRange, onViewChange, ...dragProps
+    onUpdateTake, onDeleteTake, onTrack, onUseTakePractice, onSeek, onRange, onViewChange, ...dragProps
   } = props
   const activeTake = takes.find((take) => take.id === track.activeTakeId) ?? null
-  const speedMatches = !activeTake || Math.abs(activeTake.playbackRate - practice.playbackRate) < 0.0001
+  const practiceMatches = !activeTake || (
+    Math.abs(activeTake.playbackRate - practice.playbackRate) < 0.0001
+    && (activeTake.pitchSemitones ?? 0) === practice.pitchSemitones
+  )
   const running = !['idle', 'failed'].includes(state.phase)
   const activeRunning = running && state.recordingTrackId === track.id
   const peak = activeRunning ? Math.max(...meter.peak, 0) : 0
@@ -436,7 +441,7 @@ function RecordingTrackRow(props: RecordingTrackRowProps): React.JSX.Element {
       <div className="take-toolbar">
         <select value={activeTake?.id ?? ''} disabled={running || takes.length === 0} onChange={(event) => onSelectTake(event.target.value || null)}>
           <option value="">无活动 Take</option>
-          {takes.map((take) => <option key={take.id} value={take.id}>{take.name} · {take.playbackRate.toFixed(2)}×{take.interrupted ? ' · 中断恢复' : ''}</option>)}
+          {takes.map((take) => <option key={take.id} value={take.id}>{take.name} · {take.playbackRate.toFixed(2)}× · {(take.pitchSemitones ?? 0) === 0 ? '原调' : `${(take.pitchSemitones ?? 0) > 0 ? '+' : '−'}${Math.abs(take.pitchSemitones ?? 0)} 半音`}{take.interrupted ? ' · 中断恢复' : ''}</option>)}
         </select>
         {activeTake && <>
           <button disabled={running} title="重命名" onClick={() => renameTake(activeTake)}><Pencil size={13} /></button>
@@ -444,7 +449,7 @@ function RecordingTrackRow(props: RecordingTrackRowProps): React.JSX.Element {
           {([-10, -1, 1, 10] as const).map((delta) => <button key={delta} disabled={running} onClick={() => onUpdateTake(activeTake.id, { alignmentOffsetMs: clamp(activeTake.alignmentOffsetMs + delta, -1000, 1000) })}>{delta > 0 ? '+' : ''}{delta} ms</button>)}
           <small>{activeTake.alignmentOffsetMs >= 0 ? '+' : ''}{activeTake.alignmentOffsetMs.toFixed(1)} ms</small>
         </>}
-        {!speedMatches && activeTake && <button className="speed-mismatch" onClick={() => onUseTakeSpeed(activeTake.playbackRate)}>切回 {activeTake.playbackRate.toFixed(2)}×</button>}
+        {!practiceMatches && activeTake && <button className="speed-mismatch" onClick={() => onUseTakePractice(activeTake.playbackRate, activeTake.pitchSemitones ?? 0)}>切回 {activeTake.playbackRate.toFixed(2)}× · {(activeTake.pitchSemitones ?? 0) === 0 ? '原调' : `${(activeTake.pitchSemitones ?? 0) > 0 ? '+' : '−'}${Math.abs(activeTake.pitchSemitones ?? 0)} 半音`}</button>}
         {activeRunning && <small className="recording-status">{state.message}{state.sampleRate > 0 ? ` · ${state.sampleRate} Hz · ${state.bufferFrames} f · ${state.latencyMs.toFixed(1)} ms` : ''}{state.xruns > 0 ? ` · xrun ${state.xruns}（可增大 buffer）` : ''}</small>}
       </div>
     </div>

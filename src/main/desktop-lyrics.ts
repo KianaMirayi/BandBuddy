@@ -1,10 +1,12 @@
 import { BrowserWindow, screen } from 'electron'
 import type { DesktopLyricsPayload } from '@shared/domain.js'
 import { IPC } from '@shared/channels.js'
+import type { Logger } from './logger.js'
 
 interface DesktopLyricsWindowOptions {
   preloadPath: string
   rendererUrl: string
+  logger: Logger
 }
 
 export class DesktopLyricsWindow {
@@ -81,6 +83,16 @@ export class DesktopLyricsWindow {
     window.webContents.on('will-navigate', (event, url) => {
       if (url !== this.options.rendererUrl) event.preventDefault()
     })
+    window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      const logLevel = level >= 3 ? 'error' : level === 2 ? 'warn' : level === 0 ? 'debug' : 'info'
+      this.options.logger.capture(logLevel, 'desktop lyrics console', { message, line, sourceId })
+    })
+    window.webContents.on('preload-error', (_event, preloadPath, error) => {
+      this.options.logger.capture('error', 'desktop lyrics preload failed', { preloadPath, error })
+    })
+    window.webContents.on('render-process-gone', (_event, details) => {
+      this.options.logger.capture('error', 'desktop lyrics process exited', details)
+    })
     window.on('closed', () => {
       if (this.window === window) {
         this.window = null
@@ -92,6 +104,9 @@ export class DesktopLyricsWindow {
         "typeof window.desktopLyrics === 'object' && typeof window.desktopLyrics.onUpdate === 'function'"
       ) as boolean
       if (!preloadReady) throw new Error('DESKTOP_LYRICS_PRELOAD_FAILED')
+    }).catch((error) => {
+      this.options.logger.capture('error', 'desktop lyrics failed to load', error)
+      throw error
     })
     return window
   }

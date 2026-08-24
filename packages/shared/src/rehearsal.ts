@@ -116,6 +116,7 @@ export interface RehearsalTimelineSegment {
   artist: string
   sourceDurationMs: number
   playbackRate: number
+  pitchSemitones: number
   metronomeBpm: number
   metronomeOffsetMs: number
   metronomeEnabled: boolean
@@ -194,6 +195,7 @@ export function buildRehearsalTimeline(
         artist: '',
         sourceDurationMs: durationMs,
         playbackRate: 1,
+        pitchSemitones: 0,
         metronomeBpm: 120,
         metronomeOffsetMs: 0,
         metronomeEnabled: false,
@@ -232,6 +234,7 @@ export function buildRehearsalTimeline(
         artist: song.artist,
         sourceDurationMs: song.durationMs,
         playbackRate,
+        pitchSemitones: practice.pitchSemitones ?? 0,
         metronomeBpm: practice.metronomeBpm,
         metronomeOffsetMs: practice.metronomeOffsetMs,
         metronomeEnabled: practice.metronomeEnabled,
@@ -253,6 +256,7 @@ export function buildRehearsalTimeline(
       artist: song.artist,
       sourceDurationMs: song.durationMs,
       playbackRate,
+      pitchSemitones: practice.pitchSemitones ?? 0,
       metronomeBpm: practice.metronomeBpm,
       metronomeOffsetMs: practice.metronomeOffsetMs,
       metronomeEnabled: practice.metronomeEnabled,
@@ -266,6 +270,7 @@ export function buildRehearsalTimeline(
       songId: song.id,
       durationMs: song.durationMs,
       playbackRate: roundFingerprintNumber(playbackRate),
+      pitchSemitones: practice.pitchSemitones ?? 0,
       countInBeats,
       countInBpm: countInBeats > 0 ? roundFingerprintNumber(practice.metronomeBpm) : null
     })

@@ -1,5 +1,6 @@
 #include <RtAudio.h>
 #include <nlohmann/json.hpp>
+#include <signalsmith-stretch/signalsmith-stretch.h>
 
 #ifdef BANDBUDDY_PORTAUDIO_WASAPI
 #include <portaudio.h>
@@ -277,6 +278,108 @@ class WaveWriter {
   std::atomic<bool> closed_{false};
   std::uint64_t samplesWritten_ = 0;
 };
+
+struct InterleavedChannels {
+  struct Channel {
+    float* samples;
+    std::size_t frameOffset;
+    unsigned channels;
+    float& operator[](int frame) const {
+      return samples[(frameOffset + static_cast<std::size_t>(frame)) * channels];
+    }
+  };
+
+  std::vector<float>& samples;
+  unsigned channels;
+  std::size_t frameOffset = 0;
+  Channel operator[](int channel) {
+    return Channel{samples.data() + channel, frameOffset, channels};
+  }
+};
+
+WaveData readFloatWaveFile(const fs::path& path) {
+  WaveStream stream(path);
+  if (stream.totalFrames() > std::numeric_limits<std::size_t>::max() / stream.channels()) {
+    throw std::runtime_error("PITCH_INPUT_TOO_LARGE");
+  }
+  WaveData result{stream.sampleRate(), stream.channels(),
+    std::vector<float>(static_cast<std::size_t>(stream.totalFrames()) * stream.channels())};
+  std::size_t offset = 0;
+  while (offset < result.samples.size()) {
+    const auto read = stream.read(result.samples.data() + offset, result.samples.size() - offset);
+    if (read == 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      continue;
+    }
+    offset += read;
+  }
+  stream.close();
+  return result;
+}
+
+WaveData pitchShiftSamples(WaveData input, int semitones) {
+  using Stretch = signalsmith::stretch::SignalsmithStretch<float>;
+  if (input.sampleRate == 0 || input.channels == 0 || input.samples.empty()) {
+    throw std::runtime_error("PITCH_INPUT_EMPTY");
+  }
+  const auto outputFramesSize = input.samples.size() / input.channels;
+  if (outputFramesSize > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+    throw std::runtime_error("PITCH_INPUT_TOO_LONG");
+  }
+  const auto outputFrames = static_cast<int>(outputFramesSize);
+  WaveData output{input.sampleRate, input.channels,
+    std::vector<float>(outputFramesSize * input.channels, 0.0f)};
+
+  Stretch stretch;
+  stretch.presetDefault(static_cast<int>(input.channels), input.sampleRate);
+  stretch.setTransposeSemitones(semitones, 8000.0 / input.sampleRate);
+  stretch.setFormantSemitones(0, true);
+  stretch.setFormantBase(0);
+
+  const auto seekLength = stretch.outputSeekLength(1);
+  const auto outputIndex = std::max(0, outputFrames - stretch.intervalSamples());
+  const auto outputPosition = outputIndex + stretch.outputLatency();
+  const auto inputIndex = outputPosition + stretch.inputLatency();
+  const auto paddedFrames = std::max(inputIndex, seekLength);
+  input.samples.resize(static_cast<std::size_t>(paddedFrames) * input.channels, 0.0f);
+
+  InterleavedChannels inputView{input.samples, input.channels};
+  InterleavedChannels outputView{output.samples, output.channels};
+  stretch.outputSeek(inputView, seekLength);
+  if (outputIndex > 0) {
+    inputView.frameOffset = static_cast<std::size_t>(seekLength);
+    stretch.process(inputView, inputIndex - seekLength, outputView, outputIndex);
+  }
+  outputView.frameOffset = static_cast<std::size_t>(outputIndex);
+  stretch.flush(outputView, outputFrames - outputIndex);
+  return output;
+}
+
+void writeFloatWaveFile(const fs::path& path, const WaveData& data) {
+  WaveWriter writer(path, data.sampleRate, data.channels);
+  constexpr std::size_t blockSamples = 16384;
+  std::size_t offset = 0;
+  while (offset < data.samples.size()) {
+    const auto count = std::min(blockSamples, data.samples.size() - offset);
+    if (!writer.write(data.samples.data() + offset, count)) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      continue;
+    }
+    offset += count;
+  }
+  writer.close();
+}
+
+json pitchShiftFile(const fs::path& inputPath, const fs::path& outputPath, int semitones) {
+  if (semitones < -12 || semitones > 12) throw std::runtime_error("PITCH_SEMITONES_OUT_OF_RANGE");
+  auto input = readFloatWaveFile(inputPath);
+  const auto sampleRate = input.sampleRate;
+  const auto channels = input.channels;
+  auto output = pitchShiftSamples(std::move(input), semitones);
+  writeFloatWaveFile(outputPath, output);
+  return {{"frames", output.samples.size() / output.channels}, {"sampleRate", sampleRate},
+    {"channels", channels}, {"semitones", semitones}};
+}
 
 std::string backendName(RtAudio::Api api, bool exclusive = false) {
   switch (api) {
@@ -1146,6 +1249,26 @@ class Host {
 } // namespace
 
 int main(int argc, char** argv) {
+  if (argc > 1 && std::string(argv[1]) == "--pitch") {
+    json result;
+    try {
+      if (argc != 5) throw std::runtime_error("PITCH_USAGE:--pitch input.wav output.wav semitones");
+      std::size_t parsed = 0;
+      const std::string value = argv[4];
+      const auto semitones = std::stoi(value, &parsed);
+      if (parsed != value.size()) throw std::runtime_error("PITCH_SEMITONES_INVALID");
+      result = pitchShiftFile(argv[2], argv[3], semitones);
+      emit({{"ok", true}, {"result", result}});
+      return 0;
+    } catch (const std::exception& error) {
+      if (argc > 3) {
+        std::error_code ignored;
+        fs::remove(argv[3], ignored);
+      }
+      emit({{"ok", false}, {"error", error.what()}});
+      return 1;
+    }
+  }
   if (argc > 1 && std::string(argv[1]) == "--self-test") {
     Session session;
     session.sampleRate = 48000;
@@ -1171,9 +1294,25 @@ int main(int argc, char** argv) {
     const bool channelMapping = recordingResult == 0 && session.transportFrames.load() == session.bufferFrames
       && std::abs(session.peak[0].load() - 0.25f) < 0.0001f && std::abs(session.peak[1].load() - 0.125f) < 0.0001f;
     const bool xrunCounted = session.xruns.load() == 1;
-    const bool ok = countInSilent && channelMapping && xrunCounted;
+    bool signalsmithPitch = false;
+    try {
+      WaveData tone{48000, 2, std::vector<float>(48000 * 2)};
+      for (std::size_t frame = 0; frame < 48000; ++frame) {
+        const auto sample = static_cast<float>(0.2 * std::sin(2 * kPi * 440 * frame / 48000));
+        tone.samples[frame * 2] = sample;
+        tone.samples[frame * 2 + 1] = sample;
+      }
+      const auto shifted = pitchShiftSamples(std::move(tone), 12);
+      double energy = 0;
+      for (const auto sample : shifted.samples) energy += sample * sample;
+      signalsmithPitch = shifted.samples.size() == 48000 * 2 && std::isfinite(energy) && energy > 1;
+    } catch (...) {
+      signalsmithPitch = false;
+    }
+    const bool ok = countInSilent && channelMapping && xrunCounted && signalsmithPitch;
     emit({{"ok", ok}, {"name", "bandbuddy-audio-host"}, {"protocolVersion", 1},
-      {"tests", {{"countInDoesNotRecord", countInSilent}, {"channelMapping", channelMapping}, {"xrunCounted", xrunCounted}}}});
+      {"tests", {{"countInDoesNotRecord", countInSilent}, {"channelMapping", channelMapping}, {"xrunCounted", xrunCounted},
+        {"signalsmithPitch", signalsmithPitch}}}});
     return ok ? 0 : 1;
   }
   const bool simulate = argc > 1 && std::string(argv[1]) == "--simulate";

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from 'node:fs'
-import { access, rename } from 'node:fs/promises'
+import { access, mkdtemp, rename, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { dialog } from 'electron'
 import {
@@ -14,6 +14,7 @@ import type { MediaService } from './media.js'
 import type { AppPaths } from './paths.js'
 import { runProcess } from './process.js'
 import { buildMixFilter } from './export-filter.js'
+import { renderPitchedStemBus } from './pitch-shift.js'
 
 export { buildMixFilter } from './export-filter.js'
 
@@ -25,6 +26,10 @@ function outputArgs(format: ExportFormat): string[] {
 
 function safeName(value: string): string {
   return value.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').slice(0, 120) || 'BandBuddy'
+}
+
+export function exportedStemPitchSemitones(request: Pick<ExportRequest, 'applyPitchShift' | 'pitchSemitones'>, stemType: string): number {
+  return request.applyPitchShift && stemType !== 'drums' ? request.pitchSemitones : 0
 }
 
 export class ExportService {
@@ -69,6 +74,10 @@ export class ExportService {
         : []
       if (audibleRecordings.some(({ take }) => !request.applyPlaybackRate || Math.abs(request.playbackRate - take.playbackRate) > 0.0001)) {
         throw new Error('RECORDING_TAKE_SPEED_MISMATCH')
+      }
+      const effectivePitch = request.applyPitchShift ? request.pitchSemitones : 0
+      if (audibleRecordings.some(({ take }) => (take.pitchSemitones ?? 0) !== effectivePitch)) {
+        throw new Error('RECORDING_TAKE_PITCH_MISMATCH')
       }
       if (!audibleStems && audibleRecordings.length === 0) throw new Error('NO_AUDIBLE_TRACKS')
     }
@@ -128,19 +137,47 @@ export class ExportService {
     if (!files.length && request.kind === 'stems') throw new Error('NO_STEMS_TO_EXPORT')
 
     if (request.kind === 'stems') {
-      for (let index = 0; index < files.length; index += 1) {
-        const file = files[index]!
-        const output = outputPaths[index]!
-        mkdirSync(path.dirname(output), { recursive: true })
-        const temporary = path.join(path.dirname(output), `${path.basename(output, path.extname(output))}.part${path.extname(output)}`)
-        const result = await runProcess(ffmpeg, [
-          '-y', '-v', 'error', '-i', this.paths.resolveLibraryPath(settings.libraryRoot, file.relPath),
-          '-map_metadata', '-1', '-vn', ...outputArgs(request.format), temporary
-        ], { signal })
-        if (signal.aborted) throw new Error('EXPORT_CANCELLED')
-        if (result.code !== 0) throw new Error(`EXPORT_FAILED:${result.stderr.slice(-800)}`)
-        await rename(temporary, output)
-        onProgress((index + 1) / files.length, `已导出 ${STEM_META[file.type].shortLabel}`)
+      const effectivePitch = request.applyPitchShift ? request.pitchSemitones : 0
+      let stemPitchRoot: string | null = null
+      try {
+        if (effectivePitch !== 0 && files.some((file) => file.type !== 'drums')) {
+          stemPitchRoot = await mkdtemp(path.join(this.paths.cacheRoot, 'export-stems-pitch-'))
+        }
+        for (let index = 0; index < files.length; index += 1) {
+          const file = files[index]!
+          const output = outputPaths[index]!
+          mkdirSync(path.dirname(output), { recursive: true })
+          const temporary = path.join(path.dirname(output), `${path.basename(output, path.extname(output))}.part${path.extname(output)}`)
+          const source = this.paths.resolveLibraryPath(settings.libraryRoot, file.relPath)
+          let input = source
+          if (stemPitchRoot && exportedStemPitchSemitones(request, file.type) !== 0) {
+            onProgress(index / files.length, `正在为 ${STEM_META[file.type].shortLabel} 应用 Signalsmith 升降调`)
+            input = await renderPitchedStemBus({
+              paths: this.paths,
+              ffmpeg,
+              stems: [{ path: source, gainDb: 0 }],
+              startPositionMs: 0,
+              endPositionMs: file.durationMs,
+              playbackRate: 1,
+              sampleRate: 44_100,
+              semitones: effectivePitch,
+              unpitchedPath: path.join(stemPitchRoot, `${file.type}-input.wav`),
+              pitchedPath: path.join(stemPitchRoot, `${file.type}-pitched.wav`),
+              signal
+            }) ?? source
+          }
+          const result = await runProcess(ffmpeg, [
+            '-y', '-v', 'error', '-i', input,
+            '-map_metadata', '-1', '-vn', ...outputArgs(request.format), temporary
+          ], { signal })
+          if (signal.aborted) throw new Error('EXPORT_CANCELLED')
+          if (result.code !== 0) throw new Error(`EXPORT_FAILED:${result.stderr.slice(-800)}`)
+          await rename(temporary, output)
+          onProgress((index + 1) / files.length, `已导出 ${STEM_META[file.type].shortLabel}`)
+        }
+        this.logger.info('stems exported', { songId: request.songId, count: files.length, format: request.format, pitchSemitones: effectivePitch })
+      } finally {
+        if (stemPitchRoot) await rm(stemPitchRoot, { recursive: true, force: true })
       }
       return
     }
@@ -161,51 +198,102 @@ export class ExportService {
     if (audibleRecordings.some(({ take }) => !request.applyPlaybackRate || Math.abs(request.playbackRate - take.playbackRate) > 0.0001)) {
       throw new Error('RECORDING_TAKE_SPEED_MISMATCH')
     }
+    const effectivePitch = request.applyPitchShift ? request.pitchSemitones : 0
+    if (audibleRecordings.some(({ take }) => (take.pitchSemitones ?? 0) !== effectivePitch)) {
+      throw new Error('RECORDING_TAKE_PITCH_MISMATCH')
+    }
     if (!audibleStates.length && !audibleRecordings.length) throw new Error('NO_AUDIBLE_TRACKS')
     const inputFiles = audibleStates.map((state) => ({ state, file: files.find((candidate) => candidate.type === state.stemType) })).filter((entry) => entry.file !== undefined)
     if (!inputFiles.length && !audibleRecordings.length) throw new Error('NO_AUDIBLE_TRACKS')
     const output = outputPaths[0]!
     mkdirSync(path.dirname(output), { recursive: true })
     const temporary = path.join(path.dirname(output), `${path.basename(output, path.extname(output))}.part${path.extname(output)}`)
-    const inputs = inputFiles.flatMap(({ file }) => ['-i', this.paths.resolveLibraryPath(settings.libraryRoot, file!.relPath)])
-    const recordingInputs = audibleRecordings.map(({ track, take }, index) => {
-      const takeFile = this.database.getRecordingTakeFile(take.id)
-      if (!takeFile) throw new Error('ACTIVE_RECORDING_TAKE_MISSING')
-      inputs.push('-i', this.paths.resolveLibraryPath(settings.libraryRoot, takeFile.sourceRelPath))
-      return { track, take, inputIndex: inputFiles.length + index }
-    })
-    const filter = buildMixFilter({
-      tracks: inputFiles.map(({ state }, inputIndex) => ({ inputIndex, state })),
-      takes: recordingInputs.map(({ track, take, inputIndex }) => ({
-        inputIndex,
-        gainDb: track.gainDb,
-        startPositionMs: take.startPositionMs,
-        playbackRate: take.playbackRate,
-        alignmentOffsetMs: take.alignmentOffsetMs
-      })),
-      masterGainDb: song.practice.masterGainDb,
-      playbackRate: request.applyPlaybackRate ? request.playbackRate : null,
-      loopStartMs: request.applyLoopRange ? request.loopStartMs : null,
-      loopEndMs: request.applyLoopRange ? request.loopEndMs : null,
-      sourceDurationMs: song.durationMs
-    })
     const expectedMs = request.applyLoopRange && request.loopStartMs !== null && request.loopEndMs !== null
       ? (request.loopEndMs - request.loopStartMs) / (request.applyPlaybackRate ? request.playbackRate : 1)
       : song.durationMs / (request.applyPlaybackRate ? request.playbackRate : 1)
-    const result = await runProcess(ffmpeg, [
-      '-y', '-v', 'error', ...inputs, '-filter_complex', filter, '-map', '[out]', '-map_metadata', '-1',
-      ...outputArgs(request.format), '-progress', 'pipe:1', '-nostats', temporary
-    ], {
-      signal,
-      onStdoutLine: (line) => {
-        const match = /^out_time_us=(\d+)$/.exec(line)
-        if (match && expectedMs > 0) onProgress(Math.min(0.99, Number(match[1]) / 1000 / expectedMs), '正在混合与限制峰值')
+    let pitchRoot: string | null = null
+    try {
+      const harmonicInputs = effectivePitch === 0
+        ? []
+        : inputFiles.filter(({ state }) => state.stemType !== 'drums')
+      let pitchedBus: string | null = null
+      if (harmonicInputs.length) {
+        pitchRoot = await mkdtemp(path.join(this.paths.cacheRoot, 'export-pitch-'))
+        onProgress(0.03, '正在应用 Signalsmith 升降调')
+        pitchedBus = await renderPitchedStemBus({
+          paths: this.paths,
+          ffmpeg,
+          stems: harmonicInputs.map(({ state, file }) => ({
+            path: this.paths.resolveLibraryPath(settings.libraryRoot, file!.relPath),
+            gainDb: state.gainDb
+          })),
+          startPositionMs: request.applyLoopRange ? request.loopStartMs ?? 0 : 0,
+          endPositionMs: request.applyLoopRange ? request.loopEndMs ?? song.durationMs : song.durationMs,
+          playbackRate: request.applyPlaybackRate ? request.playbackRate : 1,
+          sampleRate: 44_100,
+          semitones: effectivePitch,
+          unpitchedPath: path.join(pitchRoot, 'harmonic-input.wav'),
+          pitchedPath: path.join(pitchRoot, 'harmonic-pitched.wav'),
+          signal
+        })
       }
-    })
-    if (signal.aborted) throw new Error('EXPORT_CANCELLED')
-    if (result.code !== 0) throw new Error(`EXPORT_FAILED:${result.stderr.slice(-800)}`)
-    await rename(temporary, output)
-    onProgress(1, '导出完成')
-    this.logger.info('mix exported', { songId: request.songId, output, format: request.format })
+      const rawInputs = pitchedBus
+        ? inputFiles.filter(({ state }) => state.stemType === 'drums')
+        : inputFiles
+      const inputs: string[] = []
+      const mixTracks: Parameters<typeof buildMixFilter>[0]['tracks'] = []
+      if (pitchedBus) {
+        inputs.push('-i', pitchedBus)
+        mixTracks.push({
+          inputIndex: 0,
+          state: { ...harmonicInputs[0]!.state, gainDb: 0, muted: false, solo: false },
+          preprocessed: true
+        })
+      }
+      rawInputs.forEach(({ state, file }) => {
+        const inputIndex = mixTracks.length
+        inputs.push('-i', this.paths.resolveLibraryPath(settings.libraryRoot, file!.relPath))
+        mixTracks.push({ inputIndex, state })
+      })
+      const recordingInputs = audibleRecordings.map(({ track, take }) => {
+        const takeFile = this.database.getRecordingTakeFile(take.id)
+        if (!takeFile) throw new Error('ACTIVE_RECORDING_TAKE_MISSING')
+        const inputIndex = inputs.length / 2
+        inputs.push('-i', this.paths.resolveLibraryPath(settings.libraryRoot, takeFile.sourceRelPath))
+        return { track, take, inputIndex }
+      })
+      const filter = buildMixFilter({
+        tracks: mixTracks,
+        takes: recordingInputs.map(({ track, take, inputIndex }) => ({
+          inputIndex,
+          gainDb: track.gainDb,
+          startPositionMs: take.startPositionMs,
+          playbackRate: take.playbackRate,
+          alignmentOffsetMs: take.alignmentOffsetMs
+        })),
+        masterGainDb: song.practice.masterGainDb,
+        playbackRate: request.applyPlaybackRate ? request.playbackRate : null,
+        loopStartMs: request.applyLoopRange ? request.loopStartMs : null,
+        loopEndMs: request.applyLoopRange ? request.loopEndMs : null,
+        sourceDurationMs: song.durationMs
+      })
+      const result = await runProcess(ffmpeg, [
+        '-y', '-v', 'error', ...inputs, '-filter_complex', filter, '-map', '[out]', '-map_metadata', '-1',
+        ...outputArgs(request.format), '-progress', 'pipe:1', '-nostats', temporary
+      ], {
+        signal,
+        onStdoutLine: (line) => {
+          const match = /^out_time_us=(\d+)$/.exec(line)
+          if (match && expectedMs > 0) onProgress(Math.min(0.99, Number(match[1]) / 1000 / expectedMs), '正在混合与限制峰值')
+        }
+      })
+      if (signal.aborted) throw new Error('EXPORT_CANCELLED')
+      if (result.code !== 0) throw new Error(`EXPORT_FAILED:${result.stderr.slice(-800)}`)
+      await rename(temporary, output)
+      onProgress(1, '导出完成')
+      this.logger.info('mix exported', { songId: request.songId, output, format: request.format, pitchSemitones: effectivePitch })
+    } finally {
+      if (pitchRoot) await rm(pitchRoot, { recursive: true, force: true })
+    }
   }
 }

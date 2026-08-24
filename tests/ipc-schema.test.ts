@@ -34,6 +34,25 @@ describe('IPC schemas', () => {
     expect(exportRequestSchema.safeParse({ ...base, loopEndMs: 2000 }).success).toBe(true)
   })
 
+  it('accepts whole-semitone pitch shifts through one octave in either direction', () => {
+    const practice = createDefaultPracticeState(songId)
+    expect(practiceStateSchema.safeParse({ ...practice, pitchSemitones: -12 }).success).toBe(true)
+    expect(practiceStateSchema.safeParse({ ...practice, pitchSemitones: 12 }).success).toBe(true)
+    expect(practiceStateSchema.safeParse({ ...practice, pitchSemitones: -13 }).success).toBe(false)
+    expect(practiceStateSchema.safeParse({ ...practice, pitchSemitones: 13 }).success).toBe(false)
+    expect(practiceStateSchema.safeParse({ ...practice, pitchSemitones: 1.5 }).success).toBe(false)
+
+    const request = {
+      songId, kind: 'mix', format: 'flac', stemTypes: ['vocals'], outputPath: 'C:/Exports/mix.flac',
+      applyPlaybackRate: false, playbackRate: 1, applyPitchShift: true, pitchSemitones: -12,
+      applyLoopRange: false, loopStartMs: null, loopEndMs: null, overwriteMode: 'ask'
+    }
+    expect(exportRequestSchema.safeParse(request).success).toBe(true)
+    expect(exportRequestSchema.safeParse({ ...request, pitchSemitones: 12 }).success).toBe(true)
+    expect(exportRequestSchema.safeParse({ ...request, pitchSemitones: -13 }).success).toBe(false)
+    expect(exportRequestSchema.safeParse({ ...request, pitchSemitones: 0.5 }).success).toBe(false)
+  })
+
   it('accepts playback speeds from 0.2x through 4x for practice saves and mix exports', () => {
     const practice = { ...createDefaultPracticeState(songId), playbackRate: 4 }
     expect(practiceStateSchema.safeParse(practice).success).toBe(true)
