@@ -173,12 +173,13 @@ export function SettingsDrawer({
   const [testingInput, setTestingInput] = useState(false)
   const [testState, setTestState] = useState<RecordingState | null>(null)
   const [testPeak, setTestPeak] = useState(0)
+  const [debugModeSaving, setDebugModeSaving] = useState(false)
   const [debugLogError, setDebugLogError] = useState('')
   const inputTestRequested = useRef(false)
   useEffect(() => {
-    setDraft(settings)
-    setDebugLogError('')
+    if (!open) setDraft(settings)
   }, [settings, open])
+  useEffect(() => { if (open) setDebugLogError('') }, [open])
   useEffect(() => {
     if (!open || !navigator.mediaDevices?.enumerateDevices) return
     void navigator.mediaDevices.enumerateDevices().then((devices) => setAudioOutputs(devices.filter((device) => device.kind === 'audiooutput'))).catch(() => setAudioOutputs([]))
@@ -208,10 +209,25 @@ export function SettingsDrawer({
     if (!selected) return
     setDraft({ ...draft, libraryRoot: selected.libraryRoot, runtimeRoot: selected.runtimeRoot, modelRoot: selected.modelRoot })
   }
-  const openDebugLog = async (): Promise<void> => {
+  const toggleDebugMode = async (enabled: boolean): Promise<void> => {
+    const previous = draft.debugMode
+    setDraft((current) => ({ ...current, debugMode: enabled }))
+    setDebugModeSaving(true)
     setDebugLogError('')
-    try { await window.bandbuddy.settings.openDebugLog() }
-    catch (error) { setDebugLogError(toUserErrorMessage(error, '无法打开 debug.log，请稍后重试')) }
+    try {
+      const saved = await window.bandbuddy.settings.setDebugMode(enabled)
+      onSaved(saved)
+    } catch (error) {
+      setDraft((current) => ({ ...current, debugMode: previous }))
+      setDebugLogError(toUserErrorMessage(error, '无法切换 Debug 模式，请稍后重试'))
+    } finally {
+      setDebugModeSaving(false)
+    }
+  }
+  const revealDebugLog = async (): Promise<void> => {
+    setDebugLogError('')
+    try { await window.bandbuddy.settings.revealDebugLog() }
+    catch (error) { setDebugLogError(toUserErrorMessage(error, '无法打开 debug.log 所在位置，请稍后重试')) }
   }
   const automaticBackend: Exclude<AudioBackend, 'auto'> = /Mac/i.test(navigator.platform) ? 'coreaudio' : 'wasapi-shared'
   const selectedBackend = draft.recordingAudio.backend === 'auto' ? automaticBackend : draft.recordingAudio.backend
@@ -282,8 +298,8 @@ export function SettingsDrawer({
     <section className="settings-section"><h3><FolderOpen />存储位置</h3><label className="path-field">数据目录<div className="path-picker"><input readOnly value={dataRoot} title={dataRoot} /><button className="outline-button" type="button" onClick={() => void chooseDataRoot()}><FolderOpen size={15} />浏览</button></div></label><p className="security-note">歌曲、运行环境和模型将分别保存在 music、envs 和 envs/models 子目录中。</p></section>
     <section className="settings-section"><h3><Bug />调试与诊断</h3>
       <div className="debug-settings-row">
-        <label className="settings-toggle"><input type="checkbox" aria-label="Debug 模式" checked={draft.debugMode} onChange={(event) => setDraft({ ...draft, debugMode: event.target.checked })} /><span><b>Debug 模式</b><small>保存后记录主进程、IPC 调用和界面控制台日志</small></span></label>
-        <button className="outline-button" type="button" onClick={() => void openDebugLog()}><FileText size={15} />打开 debug.log</button>
+        <label className="settings-toggle"><input type="checkbox" aria-label="Debug 模式" checked={draft.debugMode} disabled={debugModeSaving} onChange={(event) => void toggleDebugMode(event.target.checked)} /><span><b>Debug 模式</b><small>{debugModeSaving ? '正在保存…' : '切换后立即生效，记录主进程、IPC 调用和界面控制台日志'}</small></span></label>
+        <button className="outline-button" type="button" onClick={() => void revealDebugLog()}><FolderOpen size={15} />打开日志位置</button>
       </div>
       <p className="security-note">仅在 Debug 模式开启期间追加详细日志；代理凭据、令牌和密码会自动脱敏。</p>
       {debugLogError && <p className="device-error">{debugLogError}</p>}

@@ -138,9 +138,15 @@ export function registerIpc(services: IpcServices): void {
       modelRoot: path.join(runtimeRoot, 'models')
     }
   })
-  handle(IPC.settingsOpenDebugLog, async () => {
-    const error = await shell.openPath(services.logger.ensureDebugLog())
-    if (error) throw new Error(`DEBUG_LOG_OPEN_FAILED: ${error}`)
+  handle(IPC.settingsSetDebugMode, (_event, input) => {
+    const enabled = z.boolean().parse(input)
+    const saved = services.database.saveSettings({ ...services.database.getSettings(), debugMode: enabled })
+    services.logger.setDebugMode(enabled)
+    services.emitSettings()
+    return saved
+  })
+  handle(IPC.settingsRevealDebugLog, () => {
+    shell.showItemInFolder(services.logger.ensureDebugLog())
   })
   handle(IPC.settingsUpdate, (_event, input) => {
     const settings = appSettingsSchema.parse(input)

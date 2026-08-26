@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "demucs-6s-baseline",
+  "mss": {
+    "id": "demucs-htdemucs-6s",
+    "argv": [
+      "{model_python}",
+      "{workspace}/python/msr_mvp/adapters/demucs_mss.py",
+      "--input", "{input}",
+      "--output", "{output}",
+      "--repo", "{demucs_repo}",
+      "--model", "htdemucs_6s",
+      "--device", "{device}",
+      "--segment", "7"
+    ]
+  },
+  "msr": null
+}
+

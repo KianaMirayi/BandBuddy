@@ -90,7 +90,7 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 - 后台任务展示分轨、标准化和导出进度；支持取消、重试，以及显存不足后的 CPU 重试。
 - 可从曲库或练习室编辑标题、艺术家、BPM、歌曲调与拍号；歌曲调既可本地识别，也可手动纠正。
 - 启动时会核对已保存的播放与录音设备；设备断开后自动回到当前系统默认值，并保留仍然有效的设备配置。
-- 设置中的 Debug 模式会把 renderer、preload、IPC 与进程异常写入可直接打开的 `debug.log`，代理凭据、令牌和密码会先脱敏。
+- 设置中的 Debug 模式切换后立即生效，会把 renderer、preload、IPC 与进程异常写入 `debug.log`；设置页可直接在文件管理器中定位该文件，代理凭据、令牌和密码会先脱敏。
 - 删除的受管歌曲会先进入系统废纸篓 / 回收站。
 
 ### 带走分轨或当前练习混音
@@ -222,11 +222,12 @@ macOS 包必须在对应架构的 Mac 上构建，以便 Electron、`better-sqli
 | `src/renderer` | React 曲库、练习室、多轨播放器与波形界面 |
 | `native/audio-host` | RtAudio / PortAudio 原生录音宿主与设备时钟协议 |
 | `python/worker` | 本地 Demucs 工作进程及模型下载协议 |
+| `python/msr_mvp` | 模型/轨数无关的 MSS → MSR 实验管线与适配器 |
 | `packages/shared` | 领域类型、Zod schema 与 IPC 合约 |
 | `resources` / `scripts` | 固定桌面工具清单、下载和验证脚本 |
 | `tests` | 音频规则、迁移、路径安全、任务状态和播放器测试 |
 
-更详细的进程边界、数据原子性、音频管线和 worker 协议见 [架构说明](./docs/ARCHITECTURE.md)。第三方组件及许可见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+更详细的进程边界、数据原子性、音频管线和 worker 协议见 [架构说明](./docs/ARCHITECTURE.md)；MSS → MSR 独立实验见 [MVP 说明](./python/msr_mvp/README.md) 和 [实测记录](./docs/experiments/msr-mvp-2026-08-25.md)。第三方组件及许可见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 
 ## 当前边界
 

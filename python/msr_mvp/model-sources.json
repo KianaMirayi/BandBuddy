@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-25",
+  "xlance": {
+    "code": "https://github.com/ModistAndrew/xlance-msr",
+    "commit": "7f55df1f84b127aaa27f57f9436538529ad09643",
+    "checkpoints": "https://huggingface.co/chenxie95/xlance-msr-ckpt",
+    "paper": "https://arxiv.org/abs/2602.09042",
+    "mvpStatus": "adapter-ready-checkpoint-download-incomplete"
+  },
+  "dttBsr": {
+    "code": "https://github.com/OrigamiShido/DTT-BSR",
+    "commit": "06034b4d2909e2f5e71012abf114e9ba8ab2a8db",
+    "checkpoints": "https://huggingface.co/OrigamiShido/MSRChallenge-ACDC",
+    "mvpStatus": "public-stage1-verified",
+    "files": {
+      "Bass.pth": "c927f290461b1dac4c347bad84f54698710a23d80dd09ee4eac12b99578a9d14",
+      "Drums.pth": "32f831819241e55404df88ff00f6c13c045c08b13da3fef92b9e53c38012e9df",
+      "Guitars.pth": "2b0f32368b626f443bdc3d97d8b010d12294301436e823a3cf97fe26dd80273b",
+      "Keyboards.pth": "65fda6abe55efcd49be63a2e42e8c102b5eef1d1948157aa3330070de5d53803",
+      "Orchestra.pth": "2a6f14ab2fc10b35204c2d00faa18d76d12e12814aaf8b6720d771faf23f75c3",
+      "Percussions.pth": "da86f7c0c9cdb425d8fc1c53e5fbb271f3c44df79c4034524b7876f8072afdfa",
+      "Synthesizers.pth": "c37ecd25b884dff587a7d8b56cd877a9e5de98cae8ae9923abec2ba6995c9946",
+      "Vocals.pth": "12062e4cae4b02af01ce633c95ec38dd3bfdc685414f7b8730399eb78d6efd9d"
+    }
+  },
+  "dttBsrPlus": {
+    "paper": "https://arxiv.org/abs/2606.24127",
+    "mvpStatus": "stage2-code-and-checkpoints-not-published-by-official-project"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "demucs-6s-then-xlance-vocal-dereverb-experiment",
+  "mss": {
+    "id": "demucs-htdemucs-6s",
+    "argv": [
+      "{model_python}",
+      "{workspace}/python/msr_mvp/adapters/demucs_mss.py",
+      "--input", "{input}",
+      "--output", "{output}",
+      "--repo", "{demucs_repo}",
+      "--model", "htdemucs_6s",
+      "--device", "{device}",
+      "--segment", "7"
+    ]
+  },
+  "msr": {
+    "id": "xlance-vocal-dereverb-post-mss",
+    "selectStems": ["vocals"],
+    "environment": {
+      "PYTHONPATH": "{xlance_site}"
+    },
+    "argv": [
+      "{model_python}",
+      "{workspace}/python/msr_mvp/adapters/xlance_msr.py",
+      "--repo", "{xlance_repo}",
+      "--checkpoint", "{xlance_dereverb}",
+      "--input", "{input}",
+      "--output", "{output}",
+      "--device", "{device}",
+      "--chunk-seconds", "{xlance_chunk_seconds}"
+    ]
+  }
+}

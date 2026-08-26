@@ -45,7 +45,8 @@ const api: BandBuddyApi = {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
     chooseDataRoot: (currentLibraryRoot) => ipcRenderer.invoke(IPC.settingsChooseDataRoot, currentLibraryRoot),
     update: (settings) => ipcRenderer.invoke(IPC.settingsUpdate, settings),
-    openDebugLog: () => ipcRenderer.invoke(IPC.settingsOpenDebugLog),
+    setDebugMode: (enabled) => ipcRenderer.invoke(IPC.settingsSetDebugMode, enabled),
+    revealDebugLog: () => ipcRenderer.invoke(IPC.settingsRevealDebugLog),
     onChanged: (callback) => subscribe(IPC.eventSettingsChanged, callback)
   },
   media: {

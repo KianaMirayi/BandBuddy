@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "dtt-bsr-stage1-8stem-public-checkpoints",
+  "mss": {
+    "id": "dtt-bsr-stage1",
+    "environment": {
+      "PYTHONPATH": "{dtt_site}"
+    },
+    "argv": [
+      "{model_python}",
+      "{workspace}/python/msr_mvp/adapters/dtt_bsr_mss.py",
+      "--repo", "{dtt_repo}",
+      "--config", "{dtt_config}",
+      "--checkpoint-dir", "{dtt_checkpoints}",
+      "--input", "{input}",
+      "--output", "{output}",
+      "--device", "{device}",
+      "--chunk-seconds", "{dtt_chunk_seconds}"
+    ]
+  },
+  "msr": null
+}

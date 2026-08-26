@@ -53,7 +53,8 @@ export function installFixtureBridge(): void {
       get: async () => settings,
       chooseDataRoot: async () => ({ dataRoot: 'C:\\Users\\Musician\\BandBuddy', libraryRoot: settings.libraryRoot, runtimeRoot: settings.runtimeRoot, modelRoot: settings.modelRoot }),
       update: async (value) => value,
-      openDebugLog: async () => undefined,
+      setDebugMode: async (enabled) => ({ ...settings, debugMode: enabled }),
+      revealDebugLog: async () => undefined,
       onChanged: noop
     },
     media: {

@@ -75,7 +75,8 @@ export interface BandBuddyApi {
     get(): Promise<AppSettings>
     chooseDataRoot(currentLibraryRoot?: string): Promise<StoragePaths | null>
     update(settings: AppSettings): Promise<AppSettings>
-    openDebugLog(): Promise<void>
+    setDebugMode(enabled: boolean): Promise<AppSettings>
+    revealDebugLog(): Promise<void>
     onChanged(callback: (settings: AppSettings) => void): Unsubscribe
   }
   media: {

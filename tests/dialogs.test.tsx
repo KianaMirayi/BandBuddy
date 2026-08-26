@@ -110,28 +110,31 @@ describe('library dialogs', () => {
     })))
   })
 
-  it('saves debug mode and opens the debug log from settings', async () => {
+  it('enables debug mode immediately and reveals the debug log from settings', async () => {
     const [settings, runtime] = await Promise.all([
       window.bandbuddy.settings.get(),
       window.bandbuddy.runtime.get()
     ])
-    const update = vi.spyOn(window.bandbuddy.settings, 'update').mockImplementation(async (value) => value)
-    const openDebugLog = vi.spyOn(window.bandbuddy.settings, 'openDebugLog')
+    const update = vi.spyOn(window.bandbuddy.settings, 'update')
+    const setDebugMode = vi.spyOn(window.bandbuddy.settings, 'setDebugMode').mockImplementation(async (enabled) => ({ ...settings, debugMode: enabled }))
+    const revealDebugLog = vi.spyOn(window.bandbuddy.settings, 'revealDebugLog')
+    const onSaved = vi.fn()
 
     render(<SettingsDrawer
       open
       onOpenChange={() => undefined}
       runtime={runtime}
       settings={settings}
-      onSaved={() => undefined}
+      onSaved={onSaved}
       onRefresh={() => undefined}
     />)
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Debug 模式' }))
-    fireEvent.click(screen.getByRole('button', { name: /打开 debug\.log/ }))
-    await waitFor(() => expect(openDebugLog).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(setDebugMode).toHaveBeenCalledWith(true))
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ debugMode: true }))
+    expect(update).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
-    await waitFor(() => expect(update).toHaveBeenCalledWith(expect.objectContaining({ debugMode: true })))
+    fireEvent.click(screen.getByRole('button', { name: '打开日志位置' }))
+    await waitFor(() => expect(revealDebugLog).toHaveBeenCalledTimes(1))
   })
 })
