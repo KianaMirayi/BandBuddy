@@ -26,7 +26,7 @@ export function installFixtureBridge(): void {
   const runtime = {
     status: 'ready' as const, stage: '环境就绪 · CUDA', progress: 1, device: 'auto' as const, selectedDevice: 'cuda' as const,
     gpu: { name: 'NVIDIA GeForce RTX 4070', driverVersion: '590.18', memoryMb: 12282 },
-    pythonVersion: '3.12.10', torchVersion: '2.11.0+cu130', cudaVersion: '13.0', demucsVersion: '4.1.0', modelReady: true,
+    windowsVcRuntimeVersion: '14.50.35719.0', pythonVersion: '3.12.10', torchVersion: '2.11.0+cu130', cudaVersion: '13.0', demucsVersion: '4.1.0', modelReady: true,
     modelRevision: 'htdemucs_6s:5c90dfd2-34c22ccb', runtimePath: settings.runtimeRoot, modelPath: settings.modelRoot, error: null
   }
   let rehearsal = structuredClone(fixtureRehearsal)

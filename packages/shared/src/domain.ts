@@ -399,6 +399,7 @@ export interface RuntimeInfo {
   device: ComputeDevice
   selectedDevice: Exclude<ComputeDevice, 'auto'>
   gpu: GpuInfo | null
+  windowsVcRuntimeVersion: string | null
   pythonVersion: string | null
   torchVersion: string | null
   cudaVersion: string | null

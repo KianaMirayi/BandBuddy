@@ -219,7 +219,7 @@ def torch_oom_types() -> tuple[type[BaseException], ...]:
     try:
         import torch
         return (torch.cuda.OutOfMemoryError,)
-    except (ImportError, AttributeError):
+    except (ImportError, AttributeError, OSError):
         return ()
 
 

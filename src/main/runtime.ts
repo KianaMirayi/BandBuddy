@@ -14,6 +14,13 @@ import { runProcess, spawnSafe } from './process.js'
 import { selectComputeDevice } from './runtime-device.js'
 import { PYTHON_RUNTIME_REQUIREMENTS, PYTHON_RUNTIME_VERSIONS } from './runtime-dependencies.js'
 import { currentToolTarget, toolFile } from './platform-tools.js'
+import {
+  VC_RUNTIME_DOWNLOAD_URL,
+  detectWindowsVcRuntime,
+  isTrustedMicrosoftSignature,
+  isWindowsNativeRuntimeError,
+  parseAuthenticodeInfo
+} from './windows-prerequisites.js'
 
 const TOOL_TARGET = currentToolTarget()
 const UV_FILE = toolFile(TOOL_TARGET, 'uv')
@@ -30,6 +37,11 @@ export const RUNTIME_VERSIONS = {
 const UV_ARCHIVE_SHA256 = UV_SOURCE.sha256
 const UV_BINARY_SHA256 = UV_FILE.sha256
 const UV_DOWNLOAD = UV_SOURCE.url
+const VC_RUNTIME_INSTALLER = 'vc_redist.x64.exe'
+const PREREQUISITE_PATH_ENV = 'BANDBUDDY_PREREQUISITE_PATH'
+const PREREQUISITE_MODE_ENV = 'BANDBUDDY_PREREQUISITE_MODE'
+const AUTHENTICODE_SCRIPT = `$signature=Get-AuthenticodeSignature -LiteralPath $env:${PREREQUISITE_PATH_ENV}; $subject=if($null -eq $signature.SignerCertificate){''}else{$signature.SignerCertificate.Subject}; [Console]::Out.Write((@{status=$signature.Status.ToString();subject=$subject}|ConvertTo-Json -Compress))`
+const ELEVATED_INSTALL_SCRIPT = `$ErrorActionPreference='Stop'; try {$process=Start-Process -FilePath $env:${PREREQUISITE_PATH_ENV} -ArgumentList @($env:${PREREQUISITE_MODE_ENV},'/quiet','/norestart') -Verb RunAs -Wait -PassThru; exit $process.ExitCode} catch {[Console]::Error.Write($_.Exception.Message); if($_.Exception.NativeErrorCode -eq 1223){exit 1223}; exit 1}`
 
 function tarFile(bytes: Buffer, entrySuffix: string, fallbackEntry?: string): Buffer | null {
   for (let offset = 0; offset + 512 <= bytes.length;) {
@@ -76,6 +88,7 @@ export class RuntimeManager {
       device: settings.preferredDevice,
       selectedDevice: 'cpu',
       gpu: null,
+      windowsVcRuntimeVersion: null,
       pythonVersion: null,
       torchVersion: null,
       cudaVersion: null,
@@ -175,8 +188,24 @@ export class RuntimeManager {
       status: 'detecting', stage: '检测显卡与私有运行环境', progress: null, error: null,
       device: settings.preferredDevice, runtimePath: settings.runtimeRoot, modelPath: settings.modelRoot
     })
-    const gpu = process.platform === 'win32' ? await this.detectNvidia() : null
+    const [gpu, vcRuntime] = process.platform === 'win32'
+      ? await Promise.all([this.detectNvidia(), detectWindowsVcRuntime(runProcess)])
+      : [null, null]
     let selectedDevice = selectComputeDevice(settings.preferredDevice, process.platform, { nvidiaDetected: gpu !== null })
+
+    if (vcRuntime && !vcRuntime.supported) {
+      const installed = vcRuntime.installed && vcRuntime.version ? `（当前 ${vcRuntime.version}）` : ''
+      this.update({
+        status: 'missing',
+        stage: `缺少新版 Microsoft Visual C++ x64 运行库${installed}，安装环境时将自动补齐`,
+        progress: null,
+        gpu,
+        selectedDevice,
+        windowsVcRuntimeVersion: vcRuntime.version,
+        error: null
+      })
+      return this.getInfo()
+    }
 
     const python = this.pythonExecutable()
     if (!existsSync(python) || !existsSync(this.workerScript())) {
@@ -204,6 +233,7 @@ export class RuntimeManager {
         progress: data.modelReady ? 1 : null,
         gpu,
         selectedDevice,
+        windowsVcRuntimeVersion: vcRuntime?.version ?? null,
         pythonVersion: String(data.pythonVersion ?? ''),
         torchVersion: String(data.torchVersion ?? ''),
         cudaVersion: data.cudaVersion ? String(data.cudaVersion) : null,
@@ -213,7 +243,10 @@ export class RuntimeManager {
       })
     } catch (error) {
       this.logger.warn('runtime detection failed', error)
-      this.update({ status: 'failed', stage: '运行环境损坏，可尝试修复', progress: null, gpu, selectedDevice, error: String(error) })
+      this.update({
+        status: 'failed', stage: '运行环境损坏，可尝试修复', progress: null, gpu, selectedDevice,
+        error: isWindowsNativeRuntimeError(error) ? 'WINDOWS_NATIVE_RUNTIME_FAILED' : String(error)
+      })
     }
     return this.getInfo()
   }
@@ -226,7 +259,9 @@ export class RuntimeManager {
     mkdirSync(settings.runtimeRoot, { recursive: true })
     mkdirSync(settings.modelRoot, { recursive: true })
     try {
-      this.update({ status: 'installing', stage: '准备安装工具', progress: 0.02, error: null })
+      this.update({ status: 'installing', stage: '检查系统运行库', progress: 0.01, error: null })
+      await this.ensureWindowsPrerequisites(controller.signal)
+      this.update({ status: 'installing', stage: '准备安装工具', progress: 0.08, error: null })
       const uv = await this.ensureUv(controller.signal)
       const env = this.environment()
       const run = async (args: string[], stage: string, progress: number): Promise<void> => {
@@ -284,7 +319,10 @@ export class RuntimeManager {
         this.update({ status: 'missing', stage: '安装已取消，可继续安装', progress: null, error: null })
       } else {
         this.logger.error('runtime installation failed', error)
-        this.update({ status: 'failed', stage: '安装失败', progress: null, error: String(error) })
+        this.update({
+          status: 'failed', stage: '安装失败', progress: null,
+          error: isWindowsNativeRuntimeError(error) ? 'WINDOWS_NATIVE_RUNTIME_FAILED' : String(error)
+        })
       }
       return this.getInfo()
     } finally {
@@ -294,7 +332,9 @@ export class RuntimeManager {
 
   private async detectAfterInstall(signal: AbortSignal): Promise<Partial<RuntimeInfo> & { selectedDevice: 'cuda' | 'mps' | 'cpu' }> {
     const settings = this.database.getSettings()
-    const gpu = process.platform === 'win32' ? await this.detectNvidia() : null
+    const [gpu, vcRuntime] = process.platform === 'win32'
+      ? await Promise.all([this.detectNvidia(), detectWindowsVcRuntime(runProcess)])
+      : [null, null]
     const probe = await this.runWorker(['probe', '--model-root', settings.modelRoot, '--self-test'], signal, 180_000)
     if (probe.code !== 0) throw new Error(probe.error ?? 'SELF_TEST_FAILED')
     const data = probe.result
@@ -306,6 +346,7 @@ export class RuntimeManager {
     return {
       selectedDevice,
       gpu,
+      windowsVcRuntimeVersion: vcRuntime?.version ?? null,
       pythonVersion: String(data.pythonVersion ?? ''),
       torchVersion: String(data.torchVersion ?? ''),
       cudaVersion: data.cudaVersion ? String(data.cudaVersion) : null,
@@ -362,6 +403,79 @@ export class RuntimeManager {
     return path.basename(runtimeRoot).toLowerCase() === 'envs'
       && path.resolve(settings.libraryRoot) === path.join(dataRoot, 'music')
       && path.resolve(settings.modelRoot) === path.join(runtimeRoot, 'models')
+  }
+
+  private async ensureWindowsPrerequisites(signal: AbortSignal): Promise<void> {
+    if (process.platform !== 'win32') return
+    const current = await detectWindowsVcRuntime(runProcess)
+    let mode: '/install' | '/repair' = '/install'
+
+    if (current.supported) {
+      const audioHost = this.paths.audioHostExecutable()
+      if (!existsSync(audioHost)) throw new Error('AUDIO_HOST_MISSING')
+      const selfTest = await runProcess(audioHost, ['--self-test'], { signal })
+      if (selfTest.code === 0) {
+        this.update({ windowsVcRuntimeVersion: current.version })
+        this.logger.info('Windows native prerequisites ready', { vcRuntime: current.version })
+        return
+      }
+      mode = '/repair'
+      this.logger.warn('Windows native prerequisite self-test failed', { vcRuntime: current.version, code: selfTest.code })
+    }
+
+    this.update({
+      status: 'installing',
+      stage: mode === '/repair' ? '修复 Microsoft Visual C++ x64 运行库（请确认系统授权）' : '安装 Microsoft Visual C++ x64 运行库（请确认系统授权）',
+      progress: 0.03
+    })
+    const installer = await this.ensureVcRuntimeInstaller(signal)
+    const result = await runProcess('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive',
+      '-Command', ELEVATED_INSTALL_SCRIPT
+    ], { env: { ...process.env, [PREREQUISITE_PATH_ENV]: installer, [PREREQUISITE_MODE_ENV]: mode } })
+    if (result.code === 1223) throw new Error('VC_RUNTIME_ELEVATION_CANCELLED')
+
+    const installed = await detectWindowsVcRuntime(runProcess)
+    if (!installed.supported) throw new Error(`VC_RUNTIME_INSTALL_FAILED:${result.code}`)
+
+    const selfTest = await runProcess(this.paths.audioHostExecutable(), ['--self-test'], { signal })
+    if (selfTest.code !== 0) {
+      if (result.code === 3010 || result.code === 1641) throw new Error('VC_RUNTIME_RESTART_REQUIRED')
+      throw new Error(`VC_RUNTIME_SELF_TEST_FAILED:${selfTest.code}`)
+    }
+    this.update({ windowsVcRuntimeVersion: installed.version })
+    this.logger.info('Windows native prerequisites installed', { vcRuntime: installed.version, installerCode: result.code })
+  }
+
+  private async ensureVcRuntimeInstaller(signal: AbortSignal): Promise<string> {
+    const root = path.join(this.paths.downloadRoot, 'prerequisites')
+    const destination = path.join(root, VC_RUNTIME_INSTALLER)
+    mkdirSync(root, { recursive: true })
+    if (existsSync(destination) && await this.hasTrustedMicrosoftSignature(destination)) return destination
+    if (existsSync(destination)) await rm(destination, { force: true })
+
+    const temporary = `${destination}.part`
+    await rm(temporary, { force: true })
+    this.update({ status: 'installing', stage: '从微软下载 Visual C++ x64 运行库', progress: 0.02 })
+    try {
+      const response = await net.fetch(VC_RUNTIME_DOWNLOAD_URL, { signal })
+      if (!response.ok) throw new Error(`VC_RUNTIME_DOWNLOAD_HTTP_${response.status}`)
+      await writeFile(temporary, Buffer.from(await response.arrayBuffer()))
+      if (!await this.hasTrustedMicrosoftSignature(temporary)) throw new Error('VC_RUNTIME_SIGNATURE_INVALID')
+      await rename(temporary, destination)
+      return destination
+    } catch (error) {
+      await rm(temporary, { force: true })
+      throw error
+    }
+  }
+
+  private async hasTrustedMicrosoftSignature(filePath: string): Promise<boolean> {
+    const result = await runProcess('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive',
+      '-Command', AUTHENTICODE_SCRIPT
+    ], { env: { ...process.env, [PREREQUISITE_PATH_ENV]: filePath } })
+    return result.code === 0 && isTrustedMicrosoftSignature(parseAuthenticodeInfo(result.stdout))
   }
 
   private async ensureUv(signal: AbortSignal): Promise<string> {

@@ -216,6 +216,26 @@ const USER_ERROR_MESSAGES: ReadonlyArray<{ pattern: RegExp; message: string }> =
     message: '下载失败，请检查网络后重试'
   },
   {
+    pattern: /VC_RUNTIME_ELEVATION_CANCELLED/,
+    message: '已取消 Windows 系统运行库安装，请重新安装并确认系统授权'
+  },
+  {
+    pattern: /VC_RUNTIME_RESTART_REQUIRED/,
+    message: 'Windows 系统运行库已更新，请重启电脑后重新检测'
+  },
+  {
+    pattern: /VC_RUNTIME_DOWNLOAD_HTTP_/,
+    message: '无法从微软下载 Windows 系统运行库，请检查网络后重试'
+  },
+  {
+    pattern: /VC_RUNTIME_SIGNATURE_INVALID/,
+    message: 'Windows 系统运行库安装包签名校验失败，已停止安装'
+  },
+  {
+    pattern: /WINDOWS_NATIVE_RUNTIME_FAILED|VC_RUNTIME_(?:INSTALL|SELF_TEST)_FAILED/,
+    message: 'Windows C++ 运行库异常，请安装或修复最新版 Microsoft Visual C++ x64 运行库'
+  },
+  {
     pattern: /MODEL_INSTALL_FAILED|UV_FAILED|UV_HASH_MISMATCH|UV_ARCHIVE_INVALID|UV_EXTRACT_FAILED|PYTHON_MISSING|SELF_TEST_FAILED|TORCH_SELF_TEST_FAILED|MODEL_SELF_TEST_/,
     message: '运行环境异常，请尝试修复或重新安装'
   },
