@@ -30,7 +30,7 @@ describe('library dialogs', () => {
     }
     const { rerender } = render(<ImportDialog open {...props} />)
 
-    fireEvent.click(screen.getByText('选择 MP3、WAV、FLAC、M4A 或 AAC'))
+    fireEvent.click(screen.getByText('选择音频或视频文件'))
     await waitFor(() => expect((screen.getByLabelText('歌曲标题') as HTMLInputElement).value).toBe('歌曲 A'))
     fireEvent.change(screen.getByLabelText('艺术家'), { target: { value: '艺术家 A' } })
 
@@ -39,7 +39,7 @@ describe('library dialogs', () => {
     await waitFor(() => expect((screen.getByLabelText('歌曲标题') as HTMLInputElement).value).toBe(''))
     expect((screen.getByLabelText('艺术家') as HTMLInputElement).value).toBe('')
 
-    fireEvent.click(screen.getByText('选择 MP3、WAV、FLAC、M4A 或 AAC'))
+    fireEvent.click(screen.getByText('选择音频或视频文件'))
     await waitFor(() => expect((screen.getByLabelText('歌曲标题') as HTMLInputElement).value).toBe('歌曲 B'))
   })
 

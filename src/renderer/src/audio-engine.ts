@@ -1,19 +1,24 @@
 import {
-  PITCH_SEMITONES_MAX,
-  PITCH_SEMITONES_MIN,
+  DEFAULT_OUTPUT_CHANNEL_PAIR,
+  MAX_ROUTABLE_OUTPUT_CHANNELS,
   STEM_ORDER,
   dbToGain,
+  normalizePitchSemitones,
   type PracticeState,
   type RecordingTake,
   type SongDetail,
   type StemType
 } from '@shared/domain.js'
 import type { SignalsmithStretchNode } from 'signalsmith-stretch'
+import { activeLoopRange } from '@shared/playback.js'
 
 const SIGNALSMITH_WORKLET_MODULE_URL = new URL(
   '../../../node_modules/signalsmith-stretch/SignalsmithStretch.mjs',
   import.meta.url
 ).href
+
+const HARMONIC_STEMS = STEM_ORDER.filter((type) => type !== 'drums')
+const HARMONIC_CHANNEL_COUNT = HARMONIC_STEMS.length * 2
 
 export interface NextMetronomeBeat {
   beatIndex: number
@@ -54,6 +59,7 @@ interface TrackAudio {
   element: HTMLAudioElement
   source: MediaElementAudioSourceNode
   gain: GainNode
+  splitter: ChannelSplitterNode | null
 }
 
 interface RecordingTrackAudio extends TrackAudio {
@@ -62,6 +68,34 @@ interface RecordingTrackAudio extends TrackAudio {
 
 interface AudioContextSinkSelector {
   setSinkId?: (deviceId: string) => Promise<void>
+}
+
+interface AudioDestinationCapabilities {
+  maxChannelCount?: number
+  channelCount?: number
+}
+
+interface OutputConnection {
+  source: AudioNode
+  destination: AudioNode
+  output: number
+  input: number
+}
+
+export function routableOutputChannelCount(destination: object | null): number {
+  const capabilities = destination as AudioDestinationCapabilities | null
+  const reported = Number.isFinite(capabilities?.maxChannelCount)
+    ? capabilities?.maxChannelCount
+    : capabilities?.channelCount
+  if (typeof reported !== 'number' || !Number.isFinite(reported) || reported < 2) return 2
+  return Math.max(2, Math.min(MAX_ROUTABLE_OUTPUT_CHANNELS, Math.floor(reported / 2) * 2))
+}
+
+export function resolveOutputChannelPair(requested: number | undefined, outputChannelCount: number): number {
+  const normalized = Number.isInteger(requested) ? requested as number : DEFAULT_OUTPUT_CHANNEL_PAIR
+  return normalized >= 1 && normalized % 2 === 1 && normalized + 1 <= outputChannelCount
+    ? normalized
+    : DEFAULT_OUTPUT_CHANNEL_PAIR
 }
 
 /**
@@ -100,11 +134,20 @@ export class MultiTrackAudioEngine {
   private context: AudioContext | null = null
   private master: GainNode | null = null
   private compressor: DynamicsCompressorNode | null = null
-  private harmonicBus: GainNode | null = null
+  private harmonicBus: ChannelMergerNode | null = null
   private dryDelay: DelayNode | null = null
   private dryGain: GainNode | null = null
   private wetGain: GainNode | null = null
+  private harmonicOutput: GainNode | null = null
+  private harmonicOutputSplitter: ChannelSplitterNode | null = null
   private bypassDelay: DelayNode | null = null
+  private bypassOutputSplitter: ChannelSplitterNode | null = null
+  private auxiliaryBus: GainNode | null = null
+  private auxiliaryDelay: DelayNode | null = null
+  private auxiliaryOutputSplitter: ChannelSplitterNode | null = null
+  private outputMerger: ChannelMergerNode | null = null
+  private outputConnections: OutputConnection[] = []
+  private routableOutputChannels = 2
   private pitchNode: SignalsmithStretchNode | null = null
   private pitchNodePromise: Promise<SignalsmithStretchNode> | null = null
   private pitchTransition: Promise<void> = Promise.resolve()
@@ -134,6 +177,9 @@ export class MultiTrackAudioEngine {
   get outputLatencySeconds(): number {
     return this.pitchWetActive ? this.pitchLatencySeconds : 0
   }
+  get availableOutputChannelPairs(): number {
+    return Math.max(1, Math.floor(this.routableOutputChannels / 2))
+  }
 
   async load(song: SongDetail, outputDeviceId = '', latencyMode: AudioContextLatencyCategory = 'balanced'): Promise<void> {
     this.pause()
@@ -142,6 +188,7 @@ export class MultiTrackAudioEngine {
     this.practice = song.practice
     await this.ensureContext(latencyMode)
     await setAudioContextOutputDeviceOrDefault(this.context, outputDeviceId)
+    this.configureOutputGraph()
     const stemByType = new Map(song.stems.map((stem) => [stem.type, stem]))
     for (const type of STEM_ORDER) {
       const element = new Audio()
@@ -157,8 +204,17 @@ export class MultiTrackAudioEngine {
       element.currentTime = song.practice.positionMs / 1000
       const source = this.context!.createMediaElementSource(element)
       const gain = this.context!.createGain()
-      source.connect(gain).connect(type === 'drums' ? this.bypassDelay! : this.harmonicBus!)
-      this.tracks.set(type, { element, source, gain })
+      if (type === 'drums') {
+        source.connect(gain).connect(this.bypassDelay!)
+        this.tracks.set(type, { element, source, gain, splitter: null })
+      } else {
+        const splitter = this.context!.createChannelSplitter(2)
+        source.connect(gain).connect(splitter)
+        const channelOffset = HARMONIC_STEMS.indexOf(type) * 2
+        splitter.connect(this.harmonicBus!, 0, channelOffset)
+        splitter.connect(this.harmonicBus!, 1, channelOffset + 1)
+        this.tracks.set(type, { element, source, gain, splitter })
+      }
     }
     for (const recordingTrack of song.recordingTracks) {
       const take = song.recordingTakes.find((candidate) => candidate.id === recordingTrack.activeTakeId)
@@ -175,8 +231,8 @@ export class MultiTrackAudioEngine {
       element.currentTime = takePreviewTimeSeconds(song.practice.positionMs, take.playbackRate)
       const source = this.context!.createMediaElementSource(element)
       const gain = this.context!.createGain()
-      source.connect(gain).connect(this.bypassDelay!)
-      this.recordings.set(recordingTrack.id, { element, source, gain, take })
+      source.connect(gain).connect(this.auxiliaryBus!)
+      this.recordings.set(recordingTrack.id, { element, source, gain, splitter: null, take })
     }
     this.applyPractice(song.practice, true)
     await this.pitchTransition
@@ -214,10 +270,9 @@ export class MultiTrackAudioEngine {
       active.push(recording)
     }
     const results = await Promise.allSettled(active.map(({ element }) => element.play()))
-    if (generation !== this.playbackGeneration) {
-      for (const { element } of active) element.pause()
-      return false
-    }
+    // pause/unload already stop their media synchronously. A stale completion
+    // must not pause elements now owned by a newer restart request.
+    if (generation !== this.playbackGeneration) return false
     const failures = results.filter((result) => result.status === 'rejected')
     if (failures.length === results.length) throw new Error('AUDIO_PLAYBACK_FAILED')
     if (failures.length > 0) {
@@ -256,13 +311,20 @@ export class MultiTrackAudioEngine {
   }
 
   applyPractice(practice: PracticeState, immediate = false): void {
+    const previousPractice = this.practice
     const pitchChanged = (this.practice?.pitchSemitones ?? 0) !== (practice.pitchSemitones ?? 0)
     const metronomeChanged = this.practice?.metronomeEnabled !== practice.metronomeEnabled
       || this.practice?.metronomeBpm !== practice.metronomeBpm
       || this.practice?.metronomeOffsetMs !== practice.metronomeOffsetMs
       || this.practice?.playbackRate !== practice.playbackRate
+    const routingChanged = immediate || STEM_ORDER.some((stemType) => {
+      const previous = previousPractice?.tracks.find((track) => track.stemType === stemType)?.outputChannelPair
+      const next = practice.tracks.find((track) => track.stemType === stemType)?.outputChannelPair
+      return (previous ?? DEFAULT_OUTPUT_CHANNEL_PAIR) !== (next ?? DEFAULT_OUTPUT_CHANNEL_PAIR)
+    })
     const mediaPlaying = Boolean(this.anchor() && !this.anchor()!.paused)
     this.practice = practice
+    if (routingChanged) this.rebuildOutputRoutes()
     if (immediate || pitchChanged) this.queuePitchShift(practice.pitchSemitones ?? 0, immediate, mediaPlaying)
     const now = this.context?.currentTime ?? 0
     const ramp = immediate ? 0 : 0.035
@@ -311,12 +373,11 @@ export class MultiTrackAudioEngine {
 
   async setOutputDevice(deviceId: string): Promise<void> {
     await setAudioContextOutputDevice(this.context, deviceId)
+    this.configureOutputGraph()
   }
 
   private queuePitchShift(semitones: number, immediate: boolean, mediaPlaying: boolean): void {
-    const normalized = Number.isFinite(semitones)
-      ? Math.max(PITCH_SEMITONES_MIN, Math.min(PITCH_SEMITONES_MAX, Math.round(semitones)))
-      : 0
+    const normalized = normalizePitchSemitones(semitones)
     const generation = ++this.pitchGeneration
     const transition = this.applyPitchShift(normalized, immediate, mediaPlaying, generation)
     this.pitchTransition = transition.catch((error: unknown) => {
@@ -327,6 +388,7 @@ export class MultiTrackAudioEngine {
       this.crossfadePitch(false, now, immediate ? 0 : 0.035)
       if (this.dryDelay) this.setDelay(this.dryDelay, 0, now + (immediate ? 0 : 0.035))
       if (this.bypassDelay) this.setDelay(this.bypassDelay, 0, now + (immediate ? 0 : 0.035))
+      if (this.auxiliaryDelay) this.setDelay(this.auxiliaryDelay, 0, now + (immediate ? 0 : 0.035))
       this.errorListener?.(error)
     })
   }
@@ -338,7 +400,7 @@ export class MultiTrackAudioEngine {
     generation: number
   ): Promise<void> {
     const context = this.context
-    if (!context || !this.dryDelay || !this.dryGain || !this.wetGain || !this.bypassDelay) return
+    if (!context || !this.dryDelay || !this.dryGain || !this.wetGain || !this.bypassDelay || !this.auxiliaryDelay) return
 
     if (semitones === 0) {
       const now = context.currentTime
@@ -357,6 +419,7 @@ export class MultiTrackAudioEngine {
       const resetAt = now + ramp
       this.setDelay(this.dryDelay, 0, resetAt)
       this.setDelay(this.bypassDelay, 0, resetAt)
+      this.setDelay(this.auxiliaryDelay, 0, resetAt)
       return
     }
 
@@ -366,6 +429,7 @@ export class MultiTrackAudioEngine {
     const output = now + (mediaPlaying && !immediate ? this.pitchLatencySeconds : 0)
     this.setDelay(this.dryDelay, this.pitchLatencySeconds, now)
     this.setDelay(this.bypassDelay, this.pitchLatencySeconds, now)
+    this.setDelay(this.auxiliaryDelay, this.pitchLatencySeconds, now)
     await node.schedule({
       active: true,
       semitones,
@@ -398,10 +462,10 @@ export class MultiTrackAudioEngine {
       const node = await factory(context, {
         numberOfInputs: 1,
         numberOfOutputs: 1,
-        outputChannelCount: [2],
-        channelCount: 2,
+        outputChannelCount: [HARMONIC_CHANNEL_COUNT],
+        channelCount: HARMONIC_CHANNEL_COUNT,
         channelCountMode: 'explicit',
-        channelInterpretation: 'speakers'
+        channelInterpretation: 'discrete'
       })
       if (context !== this.context || harmonicBus !== this.harmonicBus) {
         node.disconnect()
@@ -463,24 +527,103 @@ export class MultiTrackAudioEngine {
     this.context = new AudioContext({ latencyHint })
     this.master = this.context.createGain()
     this.compressor = this.context.createDynamicsCompressor()
-    this.harmonicBus = this.context.createGain()
+    this.harmonicBus = this.context.createChannelMerger(HARMONIC_CHANNEL_COUNT)
     this.dryDelay = this.context.createDelay(2)
     this.dryGain = this.context.createGain()
     this.wetGain = this.context.createGain()
+    this.harmonicOutput = this.context.createGain()
+    this.harmonicOutputSplitter = this.context.createChannelSplitter(HARMONIC_CHANNEL_COUNT)
     this.bypassDelay = this.context.createDelay(2)
+    this.bypassOutputSplitter = this.context.createChannelSplitter(2)
+    this.auxiliaryBus = this.context.createGain()
+    this.auxiliaryDelay = this.context.createDelay(2)
+    this.auxiliaryOutputSplitter = this.context.createChannelSplitter(2)
     this.dryGain.gain.value = 1
     this.wetGain.gain.value = 0
     this.dryDelay.delayTime.value = 0
     this.bypassDelay.delayTime.value = 0
+    this.auxiliaryDelay.delayTime.value = 0
     this.compressor.threshold.value = -1
     this.compressor.knee.value = 0
     this.compressor.ratio.value = 20
     this.compressor.attack.value = 0.003
     this.compressor.release.value = 0.08
-    this.harmonicBus.connect(this.dryDelay).connect(this.dryGain).connect(this.master)
-    this.wetGain.connect(this.master)
-    this.bypassDelay.connect(this.master)
-    this.master.connect(this.compressor).connect(this.context.destination)
+    for (const node of [this.dryDelay, this.dryGain, this.wetGain, this.harmonicOutput]) {
+      node.channelInterpretation = 'discrete'
+    }
+    this.bypassDelay.channelInterpretation = 'discrete'
+    // Auxiliary nodes keep speaker interpretation so mono metronome clicks are
+    // centered across the fixed 1–2 output pair.
+    this.harmonicBus.connect(this.dryDelay).connect(this.dryGain).connect(this.harmonicOutput)
+    this.wetGain.connect(this.harmonicOutput)
+    this.harmonicOutput.connect(this.harmonicOutputSplitter)
+    this.bypassDelay.connect(this.bypassOutputSplitter)
+    this.auxiliaryBus.connect(this.auxiliaryDelay).connect(this.auxiliaryOutputSplitter)
+    this.configureOutputGraph()
+  }
+
+  private configureOutputGraph(): void {
+    const context = this.context
+    if (!context || !this.master || !this.compressor) return
+    this.disconnectOutputRoutes()
+    this.outputMerger?.disconnect()
+    this.master.disconnect()
+    this.compressor.disconnect()
+
+    const requestedChannelCount = routableOutputChannelCount(context.destination)
+    try { context.destination.channelCount = requestedChannelCount } catch { /* Use the active count below. */ }
+    try { context.destination.channelInterpretation = 'discrete' } catch { /* Not configurable on every device. */ }
+    const activeChannelCount = context.destination.channelCount
+    this.routableOutputChannels = Number.isFinite(activeChannelCount) && activeChannelCount >= 2
+      ? Math.max(2, Math.min(requestedChannelCount, Math.floor(activeChannelCount / 2) * 2))
+      : 2
+    this.outputMerger = context.createChannelMerger(this.routableOutputChannels)
+    this.master.channelInterpretation = 'discrete'
+    this.outputMerger.connect(this.master)
+    if (this.routableOutputChannels === 2) {
+      this.master.connect(this.compressor).connect(context.destination)
+    } else {
+      // DynamicsCompressorNode is limited to stereo by the Web Audio spec.
+      this.master.connect(context.destination)
+    }
+    this.rebuildOutputRoutes()
+  }
+
+  private rebuildOutputRoutes(): void {
+    this.disconnectOutputRoutes()
+    const merger = this.outputMerger
+    if (!merger) return
+    for (const stemType of STEM_ORDER) {
+      const requestedPair = this.practice?.tracks.find((track) => track.stemType === stemType)?.outputChannelPair
+      const firstChannel = resolveOutputChannelPair(requestedPair, this.routableOutputChannels) - 1
+      if (stemType === 'drums') {
+        if (!this.bypassOutputSplitter) continue
+        this.connectOutputRoute(this.bypassOutputSplitter, 0, firstChannel)
+        this.connectOutputRoute(this.bypassOutputSplitter, 1, firstChannel + 1)
+      } else {
+        if (!this.harmonicOutputSplitter) continue
+        const sourceChannel = HARMONIC_STEMS.indexOf(stemType) * 2
+        this.connectOutputRoute(this.harmonicOutputSplitter, sourceChannel, firstChannel)
+        this.connectOutputRoute(this.harmonicOutputSplitter, sourceChannel + 1, firstChannel + 1)
+      }
+    }
+    if (this.auxiliaryOutputSplitter) {
+      this.connectOutputRoute(this.auxiliaryOutputSplitter, 0, 0)
+      this.connectOutputRoute(this.auxiliaryOutputSplitter, 1, 1)
+    }
+  }
+
+  private connectOutputRoute(source: AudioNode, output: number, input: number): void {
+    if (!this.outputMerger) return
+    source.connect(this.outputMerger, output, input)
+    this.outputConnections.push({ source, destination: this.outputMerger, output, input })
+  }
+
+  private disconnectOutputRoutes(): void {
+    for (const { source, destination, output, input } of this.outputConnections) {
+      try { source.disconnect(destination, output, input) } catch { /* Graph may already be disconnected. */ }
+    }
+    this.outputConnections = []
   }
 
   private anchor(): HTMLAudioElement | null {
@@ -511,7 +654,7 @@ export class MultiTrackAudioEngine {
   }
 
   private startMetronome(): void {
-    if (!this.context || !this.bypassDelay || !this.practice) return
+    if (!this.context || !this.auxiliaryBus || !this.practice) return
     const anchor = this.anchor()
     if (!anchor) return
     this.stopMetronome()
@@ -547,7 +690,7 @@ export class MultiTrackAudioEngine {
   }
 
   private scheduleMetronomeClick(at: number, accented: boolean): void {
-    if (!this.context || !this.bypassDelay) return
+    if (!this.context || !this.auxiliaryBus) return
     const oscillator = this.context.createOscillator()
     const gain = this.context.createGain()
     oscillator.type = 'sine'
@@ -555,7 +698,7 @@ export class MultiTrackAudioEngine {
     gain.gain.setValueAtTime(0.0001, at)
     gain.gain.exponentialRampToValueAtTime(accented ? 0.28 : 0.18, at + 0.003)
     gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.055)
-    oscillator.connect(gain).connect(this.bypassDelay)
+    oscillator.connect(gain).connect(this.auxiliaryBus)
     oscillator.onended = () => {
       this.metronomeNodes.delete(oscillator)
       oscillator.disconnect()
@@ -569,16 +712,25 @@ export class MultiTrackAudioEngine {
   private monitor = (): void => {
     const anchor = this.anchor()
     if (!anchor) return
+    const practice = this.practice
+    const loop = practice ? activeLoopRange(practice) : null
+    if (loop && (anchor.ended || anchor.currentTime * 1000 >= loop.endMs)) {
+      const ended = anchor.ended
+      this.seek(loop.startMs)
+      if (ended) {
+        // B may be the final sample. Browsers pause ended media, so seeking
+        // alone would leave the loop silent at A.
+        void this.play().catch(() => { this.pause(); this.endedListener?.() })
+        return
+      }
+    }
     if (anchor.ended) {
-      this.stopMetronome()
+      this.pause()
+      this.seek(0)
       this.endedListener?.()
       return
     }
     if (anchor.paused) return
-    const practice = this.practice
-    if (practice?.loopEnabled && practice.loopStartMs !== null && practice.loopEndMs !== null && anchor.currentTime * 1000 >= practice.loopEndMs) {
-      this.seek(practice.loopStartMs)
-    }
     const anchorTime = anchor.currentTime
     for (const { element } of this.tracks.values()) {
       if (!element.src || element === anchor || element.paused) continue
@@ -600,12 +752,13 @@ export class MultiTrackAudioEngine {
 
   private destroyTracks(): void {
     cancelAnimationFrame(this.frame)
-    for (const { element, source, gain } of this.tracks.values()) {
+    for (const { element, source, gain, splitter } of this.tracks.values()) {
       element.pause()
       element.removeAttribute('src')
       element.load()
       source.disconnect()
       gain.disconnect()
+      splitter?.disconnect()
     }
     this.tracks.clear()
     for (const recording of this.recordings.values()) {
@@ -614,6 +767,7 @@ export class MultiTrackAudioEngine {
       recording.element.load()
       recording.source.disconnect()
       recording.gain.disconnect()
+      recording.splitter?.disconnect()
     }
     this.recordings.clear()
   }
@@ -641,7 +795,16 @@ export class MultiTrackAudioEngine {
     this.dryDelay = null
     this.dryGain = null
     this.wetGain = null
+    this.harmonicOutput = null
+    this.harmonicOutputSplitter = null
     this.bypassDelay = null
+    this.bypassOutputSplitter = null
+    this.auxiliaryBus = null
+    this.auxiliaryDelay = null
+    this.auxiliaryOutputSplitter = null
+    this.outputMerger = null
+    this.outputConnections = []
+    this.routableOutputChannels = 2
     this.pitchNode = null
     this.pitchNodePromise = null
     this.pitchTransition = Promise.resolve()

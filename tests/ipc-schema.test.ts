@@ -34,6 +34,18 @@ describe('IPC schemas', () => {
     expect(exportRequestSchema.safeParse({ ...base, loopEndMs: 2000 }).success).toBe(true)
   })
 
+  it('accepts only one-based odd stereo-pair starts within the 32-channel graph', () => {
+    const practice = createDefaultPracticeState(songId)
+    const withPair = (outputChannelPair: number) => ({
+      ...practice,
+      tracks: practice.tracks.map((track, index) => index === 0 ? { ...track, outputChannelPair } : track)
+    })
+    expect(practiceStateSchema.safeParse(withPair(1)).success).toBe(true)
+    expect(practiceStateSchema.safeParse(withPair(31)).success).toBe(true)
+    expect(practiceStateSchema.safeParse(withPair(2)).success).toBe(false)
+    expect(practiceStateSchema.safeParse(withPair(33)).success).toBe(false)
+  })
+
   it('accepts whole-semitone pitch shifts through one octave in either direction', () => {
     const practice = createDefaultPracticeState(songId)
     expect(practiceStateSchema.safeParse({ ...practice, pitchSemitones: -12 }).success).toBe(true)

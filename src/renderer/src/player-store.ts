@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { createDefaultPracticeState, type PracticeState, type SongDetail, type StemType, type TrackState } from '@shared/domain.js'
+import { createDefaultPracticeState, normalizePitchSemitones, type PracticeState, type SongDetail, type StemType, type TrackState } from '@shared/domain.js'
 
 export function patchTrackStates(tracks: readonly TrackState[], stemType: StemType, patch: Partial<TrackState>): TrackState[] {
   const enablesSolo = patch.solo === true
@@ -39,6 +39,7 @@ export const usePlayerStore = create<PlayerStore>((set) => ({
     practice: {
       ...createDefaultPracticeState(song.id),
       ...song.practice,
+      pitchSemitones: normalizePitchSemitones(song.practice.pitchSemitones),
       ...(song.bpm === null ? {} : { metronomeBpm: song.bpm }),
       metronomeOffsetMs: song.beatOffsetMs,
       tracks: song.practice.tracks.map((track) => ({ ...track }))
@@ -53,7 +54,13 @@ export const usePlayerStore = create<PlayerStore>((set) => ({
   unload: () => set({ song: null, practice: null, currentMs: 0, playing: false }),
   setPlaying: (playing) => set({ playing }),
   setCurrentMs: (currentMs) => set({ currentMs }),
-  patchPractice: (patch) => set((state) => state.practice ? { practice: { ...state.practice, ...patch } } : state),
+  patchPractice: (patch) => set((state) => state.practice ? {
+    practice: {
+      ...state.practice,
+      ...patch,
+      pitchSemitones: normalizePitchSemitones(patch.pitchSemitones ?? state.practice.pitchSemitones)
+    }
+  } : state),
   patchTrack: (stemType, patch) => set((state) => state.practice ? {
     practice: {
       ...state.practice,

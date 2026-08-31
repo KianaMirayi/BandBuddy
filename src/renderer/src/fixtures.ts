@@ -28,6 +28,7 @@ export function fixtureDetail(song: SongSummary): SongDetail {
     keyAnalysis: null,
     timeSignature: song.title === 'Hotel California' ? '4/4' : null,
     sourceFormat: 'flac',
+    videoUrl: null,
     sampleRate: 44100,
     channels: 2,
     lyrics: {

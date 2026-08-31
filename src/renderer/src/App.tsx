@@ -15,6 +15,7 @@ import {
   type StemType
 } from '@shared/domain.js'
 import { lyricFrameAt } from '@shared/lyrics.js'
+import { nextLoopState, restartPositionMs } from '@shared/playback.js'
 import { MultiTrackAudioEngine } from './audio-engine.js'
 import { ExportDialog, ImportDialog, MetadataDialog, SettingsDrawer, SongActionsDialog, TasksDrawer } from './components/Dialogs.js'
 import { Header } from './components/Header.js'
@@ -26,6 +27,7 @@ import { PracticeRoom } from './pages/PracticeRoom.js'
 import { RehearsalRoom } from './pages/RehearsalRoom.js'
 import { loadStartupAudioSettings } from './startup-audio-devices.js'
 import { clamp, isCancellationError, toUserErrorMessage } from './utils.js'
+import './playback-media.css'
 
 const fixtureMode = import.meta.env.DEV && new URLSearchParams(location.search).has('fixtures')
 
@@ -53,6 +55,7 @@ export default function App(): React.JSX.Element {
   const [actionSong, setActionSong] = useState<SongSummary | null>(null)
   const [toast, setToast] = useState('')
   const [countInRemaining, setCountInRemaining] = useState(0)
+  const [availableOutputChannelPairs, setAvailableOutputChannelPairs] = useState(fixtureMode ? 6 : 1)
   const [recordingState, setRecordingState] = useState<RecordingState>({
     target: 'song',
     phase: 'idle', sessionId: null, songId: null, recordingTrackId: null, sourcePositionMs: 0, countInRemaining: 0,
@@ -127,9 +130,12 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     engine.current.onTime(setCurrentMs)
     engine.current.onEnded(() => { setPlaying(false); setCountInRemaining(0); setCurrentMs(0) })
-    engine.current.onError(() => setToast('实时升降调初始化失败，当前保持原调；请重试或检查音频组件'))
+    engine.current.onError(() => {
+      patchPractice({ pitchSemitones: 0 })
+      setToast('实时升降调初始化失败，已恢复原调；请重试或检查音频组件')
+    })
     return () => engine.current.destroy()
-  }, [setCurrentMs, setPlaying])
+  }, [patchPractice, setCurrentMs, setPlaying])
 
   useEffect(() => {
     if (practice) engine.current.applyPractice(practice)
@@ -215,6 +221,7 @@ export default function App(): React.JSX.Element {
     setView('practice')
     try {
       await engine.current.load(detail, settingsQuery.data?.audioOutputDeviceId, settingsQuery.data?.latencyMode)
+      setAvailableOutputChannelPairs(fixtureMode ? 6 : engine.current.availableOutputChannelPairs)
     } catch {
       setToast('无法加载音频，请检查音频文件或输出设备')
       return
@@ -264,12 +271,50 @@ export default function App(): React.JSX.Element {
     patchPractice({ positionMs: position })
   }
 
+  const playFrom = async (milliseconds: number): Promise<void> => {
+    const state = usePlayerStore.getState()
+    if (!state.song || !state.practice || !['idle', 'failed'].includes(recordingState.phase)) return
+    engine.current.pause()
+    setCountInRemaining(0)
+    setPlaying(false)
+    seek(milliseconds)
+    // Apply a newly completed A-B range before restarting; the React effect
+    // may not have committed yet when this handler is invoked.
+    engine.current.applyPractice(usePlayerStore.getState().practice!)
+    try {
+      const started = await engine.current.play()
+      if (started && usePlayerStore.getState().song?.id === state.song.id) setPlaying(true)
+    } catch {
+      setToast('播放失败，请检查音频文件或输出设备')
+    }
+  }
+
+  const restartPlayback = (): void => {
+    const state = usePlayerStore.getState()
+    if (state.practice) void playFrom(restartPositionMs(state.practice))
+  }
+
+  const cycleLoop = (): void => {
+    const state = usePlayerStore.getState()
+    if (!state.song || !state.practice || !['idle', 'failed'].includes(recordingState.phase)) return
+    const next = nextLoopState(state.practice, state.currentMs, state.song.durationMs)
+    if (!next) {
+      setToast(state.practice.loopStartMs === null
+        ? 'A 点需在歌曲结束前，请先向前调整播放位置'
+        : 'B 点需要晚于 A 点至少 0.1 秒；可继续播放或拖动进度，Esc 清除')
+      return
+    }
+    patchPractice(next)
+    if (next.loopEnabled) void playFrom(next.loopStartMs!)
+  }
+
   const replaceCurrentSong = async (updated: SongDetail): Promise<void> => {
     const wasPlaying = playing
     engine.current.pause()
     loadSong({ ...updated, practice: practice ?? updated.practice })
     try {
       await engine.current.load({ ...updated, practice: practice ?? updated.practice }, settingsQuery.data?.audioOutputDeviceId, settingsQuery.data?.latencyMode)
+      setAvailableOutputChannelPairs(fixtureMode ? 6 : engine.current.availableOutputChannelPairs)
     } catch {
       setToast('无法加载音频，请检查音频文件或输出设备')
       return
@@ -385,7 +430,7 @@ export default function App(): React.JSX.Element {
   }
 
   const recordingLocked = !['idle', 'failed'].includes(recordingState.phase)
-  useKeyboardShortcuts({ song, practice, currentMs, selectedStem, seek, togglePlayback, patchPractice, patchTrack, setSelectedStem, enabled: view !== 'rehearsal' && !recordingLocked })
+  useKeyboardShortcuts({ song, practice, currentMs, selectedStem, seek, togglePlayback, restartPlayback, cycleLoop, patchPractice, patchTrack, setSelectedStem, enabled: view !== 'rehearsal' && !recordingLocked })
 
   const tasks = tasksQuery.data ?? []
   const activeTaskCount = tasks.filter((job) => !['completed', 'cancelled', 'failed', 'interrupted'].includes(job.status)).length
@@ -453,6 +498,9 @@ export default function App(): React.JSX.Element {
       onToast={setToast}
     /> : song && practice ? <PracticeRoom
       song={song} practice={practice} currentMs={currentMs} playing={playing} selectedStem={selectedStem}
+      availableOutputChannelPairs={availableOutputChannelPairs}
+      outputLatencyMs={engine.current.outputLatencySeconds * 1000}
+      onTogglePlayback={() => void togglePlayback()} onRestart={restartPlayback} onCycleLoop={cycleLoop}
       recordingState={recordingState} recordingMeter={recordingMeter} locked={recordingLocked}
       backLabel={rehearsalReturn ? '返回排练房' : '返回曲库'}
       onBack={() => void returnFromPractice()} onSeek={seek} onPatch={patchPractice} onTrack={patchTrack}
@@ -463,7 +511,7 @@ export default function App(): React.JSX.Element {
       onDeleteTake={(takeId) => void deleteTake(takeId)} onRecordingTrack={(recordingTrackId, patch) => void updateRecordingTrack(recordingTrackId, patch)}
       onUseTakePractice={(rate, pitchSemitones) => patchPractice({ playbackRate: rate, pitchSemitones })}
     /> : <NoSongPractice onLibrary={() => setView('library')} onImport={() => setImportOpen(true)} />}
-    {view !== 'rehearsal' && <PlayerBar practiceMode={view === 'practice'} countInRemaining={countInRemaining} locked={recordingLocked} onToggle={() => void togglePlayback()} onSeek={seek} onPractice={() => {
+    {view !== 'rehearsal' && <PlayerBar practiceMode={view === 'practice'} countInRemaining={countInRemaining} locked={recordingLocked} onToggle={() => void togglePlayback()} onSeek={seek} onRestart={restartPlayback} onCycleLoop={cycleLoop} onPractice={() => {
       if (!song) return
       setRehearsalReturn(null)
       setView('practice')
@@ -473,7 +521,9 @@ export default function App(): React.JSX.Element {
     <TasksDrawer open={tasksOpen} onOpenChange={setTasksOpen} jobs={tasks} onRefresh={() => void tasksQuery.refetch()} />
     {runtime && settings && <SettingsDrawer open={settingsOpen} onOpenChange={setSettingsOpen} runtime={runtime} settings={settings} onSaved={(saved: AppSettings) => {
       client.setQueryData(['settings'], saved)
-      void engine.current.setOutputDevice(saved.audioOutputDeviceId).catch(() => setToast('无法切换到所选音频输出，请检查设备连接或权限'))
+      void engine.current.setOutputDevice(saved.audioOutputDeviceId)
+        .then(() => setAvailableOutputChannelPairs(fixtureMode ? 6 : engine.current.availableOutputChannelPairs))
+        .catch(() => setToast('无法切换到所选音频输出，请检查设备连接或权限'))
     }} onRefresh={() => { void runtimeQuery.refetch(); void tasksQuery.refetch() }} />}
     {song && practice && <ExportDialog open={exportOpen} onOpenChange={setExportOpen} song={song} practice={practice} onBeforeStart={saveNow} />}
     {metadataSong && <MetadataDialog open={metadataOpen} onOpenChange={(open) => { setMetadataOpen(open); if (!open) setMetadataSong(null) }} song={metadataSong} onSaved={(updated) => { if (song?.id === updated.id) void replaceCurrentSong(updated); setMetadataSong(updated); void client.invalidateQueries({ queryKey: ['songs'] }) }} />}
@@ -493,7 +543,7 @@ function NoSongPractice({ onLibrary, onImport }: { onLibrary(): void; onImport()
 }
 
 function useKeyboardShortcuts({
-  song, practice, currentMs, selectedStem, seek, togglePlayback, patchPractice, patchTrack, setSelectedStem, enabled
+  song, practice, currentMs, selectedStem, seek, togglePlayback, restartPlayback, cycleLoop, patchPractice, patchTrack, setSelectedStem, enabled
 }: {
   song: SongDetail | null
   practice: PracticeState | null
@@ -501,6 +551,8 @@ function useKeyboardShortcuts({
   selectedStem: StemType
   seek(milliseconds: number): void
   togglePlayback(): Promise<void>
+  restartPlayback(): void
+  cycleLoop(): void
   patchPractice(patch: Partial<PracticeState>): void
   patchTrack(stem: StemType, patch: Partial<PracticeState['tracks'][number]>): void
   setSelectedStem(stem: StemType): void
@@ -508,8 +560,8 @@ function useKeyboardShortcuts({
 }): void {
   useEffect(() => {
     const listener = (event: KeyboardEvent): void => {
-      if (!enabled || !song || !practice || event.ctrlKey || event.metaKey || event.altKey) return
-      const target = event.target as HTMLElement | null
+      if (!enabled || !song || !practice || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return
+      const target = event.target instanceof HTMLElement ? event.target : null
       if (target?.matches('input, textarea, select, [contenteditable="true"]') || target?.closest('[data-dialog-open="true"], [role="menu"]')) return
       const selected = practice.tracks.find((track) => track.stemType === selectedStem)
       const stemOrder = normalizeTrackOrder(practice.trackOrder, song.recordingTracks.map((track) => track.id))
@@ -517,21 +569,22 @@ function useKeyboardShortcuts({
         .filter((stemType): stemType is StemType => stemType !== null)
       const index = stemOrder.indexOf(selectedStem)
       if (event.code === 'Space') { event.preventDefault(); void togglePlayback() }
+      else if (event.key === 'Home') { event.preventDefault(); restartPlayback() }
       else if (event.key === 'ArrowLeft') { event.preventDefault(); seek(currentMs - (event.shiftKey ? 1000 : 5000)) }
       else if (event.key === 'ArrowRight') { event.preventDefault(); seek(currentMs + (event.shiftKey ? 1000 : 5000)) }
       else if (event.key === 'ArrowUp') { event.preventDefault(); setSelectedStem(stemOrder[Math.max(0, index - 1)] ?? selectedStem) }
       else if (event.key === 'ArrowDown') { event.preventDefault(); setSelectedStem(stemOrder[Math.min(stemOrder.length - 1, index + 1)] ?? selectedStem) }
-      else if (event.key.toLowerCase() === 'a') patchPractice({ loopStartMs: currentMs, ...(practice.loopEndMs !== null && practice.loopEndMs <= currentMs ? { loopEndMs: null, loopEnabled: false } : {}) })
-      else if (event.key.toLowerCase() === 'b' && (practice.loopStartMs === null || currentMs > practice.loopStartMs)) patchPractice({ loopEndMs: currentMs })
-      else if (event.key.toLowerCase() === 'l') patchPractice({ loopEnabled: practice.loopStartMs !== null && practice.loopEndMs !== null ? !practice.loopEnabled : false })
+      else if (event.key.toLowerCase() === 'a' && !event.repeat) patchPractice({ loopStartMs: currentMs, loopEndMs: null, loopEnabled: false })
+      else if (event.key.toLowerCase() === 'b' && practice.loopStartMs !== null && !practice.loopEnabled && !event.repeat) cycleLoop()
+      else if (event.key.toLowerCase() === 'l' && !event.repeat) cycleLoop()
       else if (event.key.toLowerCase() === 'm' && selected) patchTrack(selectedStem, { muted: !selected.muted })
       else if (event.key.toLowerCase() === 's' && selected) patchTrack(selectedStem, { solo: !selected.solo })
       else if ((event.key === '+' || event.key === '=') && selected) patchTrack(selectedStem, { gainDb: clamp(selected.gainDb + 1, -60, 6) })
       else if (event.key === '-' && selected) patchTrack(selectedStem, { gainDb: clamp(selected.gainDb - 1, -60, 6) })
       else if (event.key === '0' && selected) patchTrack(selectedStem, { gainDb: 0 })
-      else if (event.key === 'Escape') patchPractice({ loopStartMs: null, loopEndMs: null, loopEnabled: false })
+      else if (event.key === 'Escape' && !document.fullscreenElement) patchPractice({ loopStartMs: null, loopEndMs: null, loopEnabled: false })
     }
     window.addEventListener('keydown', listener)
     return () => window.removeEventListener('keydown', listener)
-  }, [song, practice, currentMs, selectedStem, seek, togglePlayback, patchPractice, patchTrack, setSelectedStem, enabled])
+  }, [song, practice, currentMs, selectedStem, seek, togglePlayback, restartPlayback, cycleLoop, patchPractice, patchTrack, setSelectedStem, enabled])
 }

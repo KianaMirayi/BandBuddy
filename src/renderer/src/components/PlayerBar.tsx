@@ -1,5 +1,5 @@
-import { ArrowUpDown, ListMusic, LoaderCircle, Pause, Play, Repeat2, RotateCcw, RotateCw, SlidersHorizontal, Volume2, VolumeX } from 'lucide-react'
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { ArrowUpDown, ListMusic, LoaderCircle, Pause, Play, RotateCcw, RotateCw, SkipBack, SlidersHorizontal, Volume2, VolumeX } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import {
   PITCH_SEMITONES_MAX,
   PITCH_SEMITONES_MIN,
@@ -11,6 +11,8 @@ import {
 } from '@shared/domain.js'
 import { usePlayerStore } from '../player-store.js'
 import { Vinyl } from './Vinyl.js'
+import { LoopButton } from './LoopButton.js'
+import { activeLoopRange } from '@shared/playback.js'
 import { clamp, formatTime } from '../utils.js'
 
 const PLAYBACK_RATES = [0.5, 0.8, 1, 1.2, 1.5] as const
@@ -29,6 +31,8 @@ export function PlayerBar({
   locked,
   onToggle,
   onSeek,
+  onRestart,
+  onCycleLoop,
   onPractice
 }: {
   practiceMode: boolean
@@ -36,6 +40,8 @@ export function PlayerBar({
   locked: boolean
   onToggle(): void
   onSeek(milliseconds: number): void
+  onRestart(): void
+  onCycleLoop(): void
   onPractice(): void
 }): React.JSX.Element {
   const song = usePlayerStore((state) => state.song)
@@ -73,11 +79,12 @@ export function PlayerBar({
         {practiceMode && countInRemaining > 0 && <span className="count-in-badge" aria-live="polite">{countInRemaining}</span>}
       </button>
       <div className="transport">
+        <button className="restart-playback" disabled={locked} aria-label={activeLoopRange(practice) ? '跳回 A 点并播放' : '跳回开头并播放'} title={activeLoopRange(practice) ? '跳回 A 点并播放（Home）' : '跳回开头并播放（Home）'} onClick={onRestart}><SkipBack size={20} /></button>
         <button aria-label="后退 5 秒" onClick={() => onSeek(currentMs - 5000)}><RotateCcw size={22} /><i>5</i></button>
         <button className="main-play" aria-label={playbackActive ? '暂停' : '播放'} onClick={onToggle}>{playbackActive ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}</button>
         <button aria-label="前进 5 秒" onClick={() => onSeek(currentMs + 5000)}><RotateCw size={22} /><i>5</i></button>
       </div>
-      {practiceMode && <PracticeFooterControls songId={song.id} songDurationMs={song.durationMs} currentMs={currentMs} onSeek={onSeek} />}
+      {practiceMode && <PracticeFooterControls key={song.id} songId={song.id} songDurationMs={song.durationMs} currentMs={currentMs} locked={locked} onCycleLoop={onCycleLoop} onSeek={onSeek} />}
       <div className="footer-volume">
         <button
           className={`volume-toggle ${muted ? 'is-muted' : ''}`}
@@ -107,11 +114,15 @@ function PracticeFooterControls({
   songId,
   songDurationMs,
   currentMs,
+  locked,
+  onCycleLoop,
   onSeek
 }: {
   songId: string
   songDurationMs: number
   currentMs: number
+  locked: boolean
+  onCycleLoop(): void
   onSeek(milliseconds: number): void
 }): React.JSX.Element {
   const song = usePlayerStore((state) => state.song)!
@@ -124,13 +135,21 @@ function PracticeFooterControls({
   const [bpmMessage, setBpmMessage] = useState('')
   const speedPanel = useRef<HTMLDivElement>(null)
   const pitchPanel = useRef<HTMLDivElement>(null)
+  const pitchToggle = useRef<HTMLButtonElement>(null)
+  const pitchDialogId = useId()
   const metronomePanel = useRef<HTMLDivElement>(null)
   const alignmentSaveTimer = useRef<number | null>(null)
   const progress = songDurationMs > 0 ? Math.min(100, Math.max(0, currentMs / songDurationMs * 100)) : 0
   const loopStart = practice.loopStartMs === null || songDurationMs <= 0 ? null : practice.loopStartMs / songDurationMs * 100
   const loopEnd = practice.loopEndMs === null || songDurationMs <= 0 ? null : practice.loopEndMs / songDurationMs * 100
-  const hasLoopRange = practice.loopStartMs !== null && practice.loopEndMs !== null
   const hasLyrics = Boolean(song.lyrics?.cues.length)
+  const pitchDescription = practice.pitchSemitones === 0 ? '原调' : `${formatPitch(practice.pitchSemitones)} 半音`
+
+  const shiftPitch = (direction: -1 | 1): void => {
+    if (locked) return
+    const currentPractice = usePlayerStore.getState().practice
+    if (currentPractice) patchPractice({ pitchSemitones: currentPractice.pitchSemitones + direction * PITCH_SEMITONES_STEP })
+  }
 
   useEffect(() => {
     if (!speedOpen && !pitchOpen && !metronomeOpen) return
@@ -206,13 +225,7 @@ function PracticeFooterControls({
     </div>
 
     <div className="footer-option loop-option" aria-label="循环控制">
-      <Repeat2 size={13} />
-      <span className="footer-segmented">
-        <button className={practice.loopEnabled ? 'active' : ''} disabled={!hasLoopRange} onClick={() => patchPractice({ loopEnabled: !practice.loopEnabled })}>A–B</button>
-        <button onClick={() => patchPractice({ loopStartMs: currentMs, ...(practice.loopEndMs !== null && practice.loopEndMs <= currentMs ? { loopEndMs: null, loopEnabled: false } : {}) })}>A</button>
-        <button disabled={practice.loopStartMs === null || currentMs <= practice.loopStartMs} onClick={() => patchPractice({ loopEndMs: currentMs, loopEnabled: true })}>B</button>
-        <button disabled={practice.loopStartMs === null && practice.loopEndMs === null} onClick={() => patchPractice({ loopStartMs: null, loopEndMs: null, loopEnabled: false })}>×</button>
-      </span>
+      <LoopButton practice={practice} disabled={locked || songDurationMs <= 0} onClick={onCycleLoop} />
     </div>
 
     <div className="footer-option speed-option" ref={speedPanel}>
@@ -227,31 +240,68 @@ function PracticeFooterControls({
       </div>}
     </div>
 
-    <div className="footer-option pitch-option" ref={pitchPanel}>
-      <button
-        className={`pitch-button ${practice.pitchSemitones !== 0 ? 'is-enabled' : ''} ${pitchOpen ? 'active' : ''}`}
-        aria-label={`升降调：${formatPitch(practice.pitchSemitones)}`}
-        aria-expanded={pitchOpen}
-        onClick={() => { setSpeedOpen(false); setMetronomeOpen(false); setPitchOpen(!pitchOpen) }}
-      ><ArrowUpDown size={12} /><span>{formatPitch(practice.pitchSemitones)}</span></button>
-      {pitchOpen && <div className="pitch-popover" role="dialog" aria-label="升降调设置">
-        <header><span><ArrowUpDown size={14} />升降调</span><b>{formatPitch(practice.pitchSemitones)} <small>半音</small></b></header>
-        <input
-          aria-label="升降调半音数"
-          type="range"
-          min={PITCH_SEMITONES_MIN}
-          max={PITCH_SEMITONES_MAX}
-          step={PITCH_SEMITONES_STEP}
-          value={practice.pitchSemitones}
-          onChange={(event) => patchPractice({ pitchSemitones: Number(event.target.value) })}
-        />
-        <div className="pitch-step-controls">
-          <button disabled={practice.pitchSemitones <= PITCH_SEMITONES_MIN} onClick={() => patchPractice({ pitchSemitones: practice.pitchSemitones - PITCH_SEMITONES_STEP })}>降 1</button>
-          <button disabled={practice.pitchSemitones === 0} onClick={() => patchPractice({ pitchSemitones: 0 })}>原调</button>
-          <button disabled={practice.pitchSemitones >= PITCH_SEMITONES_MAX} onClick={() => patchPractice({ pitchSemitones: practice.pitchSemitones + PITCH_SEMITONES_STEP })}>升 1</button>
+    <div
+      className="footer-option pitch-option"
+      ref={pitchPanel}
+      role="group"
+      aria-label="升降调（鼓轨除外）"
+      onKeyDown={(event) => {
+        // Keep pitch-control keys from also seeking, changing track gain or clearing the loop.
+        event.stopPropagation()
+        if (event.key === 'Escape' && pitchOpen) {
+          setPitchOpen(false)
+          pitchToggle.current?.focus()
+        }
+      }}
+    >
+      <span className={`pitch-controls ${practice.pitchSemitones !== 0 ? 'is-enabled' : ''}`}>
+        <button className="pitch-step" aria-label="降低半音" title="降低半音 · 最低 −12" disabled={locked || practice.pitchSemitones <= PITCH_SEMITONES_MIN} onClick={() => shiftPitch(-1)}>♭</button>
+        <button
+          ref={pitchToggle}
+          className={`pitch-button ${pitchOpen ? 'active' : ''}`}
+          aria-label={`升降调：${pitchDescription}`}
+          aria-expanded={pitchOpen}
+          aria-controls={pitchOpen ? pitchDialogId : undefined}
+          aria-haspopup="dialog"
+          disabled={locked}
+          title="升降调设置 · 鼓轨保持原音"
+          onClick={() => { setSpeedOpen(false); setMetronomeOpen(false); setPitchOpen(!pitchOpen) }}
+        ><small>升降调</small><span aria-live="polite">{formatPitch(practice.pitchSemitones)}</span></button>
+        <button className="pitch-step" aria-label="升高半音" title="升高半音 · 最高 +12" disabled={locked || practice.pitchSemitones >= PITCH_SEMITONES_MAX} onClick={() => shiftPitch(1)}>♯</button>
+      </span>
+      <button className="pitch-reset" aria-label="恢复原调" title="恢复原调" disabled={locked || practice.pitchSemitones === 0} onClick={() => patchPractice({ pitchSemitones: 0 })}><RotateCcw size={13} /></button>
+      {pitchOpen && <div className="pitch-popover" id={pitchDialogId} role="dialog" aria-label="升降调设置" aria-describedby={`${pitchDialogId}-hint`}>
+        <header><span><ArrowUpDown size={14} />升降调</span><b>{formatPitch(practice.pitchSemitones)}{practice.pitchSemitones !== 0 && <small> 半音</small>}</b></header>
+        <div className="pitch-slider-controls">
+          <button className="pitch-slider-step" aria-label="降低 1 半音" title="降低 1 半音" disabled={locked || practice.pitchSemitones <= PITCH_SEMITONES_MIN} onClick={() => shiftPitch(-1)}>−</button>
+          <input
+            aria-label="升降调半音数"
+            type="range"
+            min={PITCH_SEMITONES_MIN}
+            max={PITCH_SEMITONES_MAX}
+            step={PITCH_SEMITONES_STEP}
+            value={practice.pitchSemitones}
+            aria-valuetext={pitchDescription}
+            disabled={locked}
+            onKeyDown={(event) => {
+              if (locked) return
+              if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+                event.preventDefault()
+                shiftPitch(-1)
+              } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+                event.preventDefault()
+                shiftPitch(1)
+              } else if (event.key === 'Home' || event.key === 'End') {
+                event.preventDefault()
+                patchPractice({ pitchSemitones: event.key === 'Home' ? PITCH_SEMITONES_MIN : PITCH_SEMITONES_MAX })
+              }
+            }}
+            onChange={(event) => { if (!locked) patchPractice({ pitchSemitones: Number(event.target.value) }) }}
+          />
+          <button className="pitch-slider-step" aria-label="升高 1 半音" title="升高 1 半音" disabled={locked || practice.pitchSemitones >= PITCH_SEMITONES_MAX} onClick={() => shiftPitch(1)}>+</button>
         </div>
-        <footer><span>低八度</span><span>原调</span><span>高八度</span></footer>
-        <p>鼓轨保持原音，其他分轨统一变调</p>
+        <footer><span>−12 · 低八度</span><span>原调</span><span>+12 · 高八度</span></footer>
+        <p id={`${pitchDialogId}-hint`}>每次 1 半音 · 鼓轨保持原音<br />人声、贝斯、吉他、钢琴及其他分轨统一变调</p>
       </div>}
     </div>
 

@@ -4,6 +4,7 @@ import {
   dbToGain,
   isTrackAudible,
   moveTrackOrder,
+  normalizeTrackStates,
   normalizeTrackOrder,
   parseMusicalKey,
   recordingTrackOrderKey,
@@ -45,6 +46,21 @@ describe('track mix rules', () => {
     expect(new Set(order).size).toBe(7)
     expect(moveTrackOrder(order, stemTrackOrderKey('vocals'), recordingTrackOrderKey(recordingId), 'before')[0])
       .toBe(stemTrackOrderKey('vocals'))
+  })
+
+  it('upgrades old saved tracks to the default output pair without losing mix state', () => {
+    const tracks = normalizeTrackStates([
+      { stemType: 'vocals', gainDb: -4, muted: true, solo: false },
+      { stemType: 'drums', gainDb: 1, muted: false, solo: true, outputChannelPair: 5 }
+    ])
+
+    expect(tracks).toHaveLength(6)
+    expect(tracks.find((track) => track.stemType === 'vocals')).toMatchObject({
+      gainDb: -4,
+      muted: true,
+      outputChannelPair: 1
+    })
+    expect(tracks.find((track) => track.stemType === 'drums')?.outputChannelPair).toBe(5)
   })
 
   it('normalizes compact key names and transposes them by semitone', () => {

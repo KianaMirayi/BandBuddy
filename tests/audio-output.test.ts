@@ -1,10 +1,26 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  resolveOutputChannelPair,
+  routableOutputChannelCount,
   setAudioContextOutputDevice,
   setAudioContextOutputDeviceOrDefault
 } from '../src/renderer/src/audio-engine.js'
 
 describe('Web Audio output routing', () => {
+  it('uses even stereo-pair capacity up to the Web Audio merger limit', () => {
+    expect(routableOutputChannelCount({ maxChannelCount: 12, channelCount: 2 })).toBe(12)
+    expect(routableOutputChannelCount({ maxChannelCount: 7 })).toBe(6)
+    expect(routableOutputChannelCount({ maxChannelCount: 64 })).toBe(32)
+    expect(routableOutputChannelCount({})).toBe(2)
+  })
+
+  it('keeps valid stereo pairs and falls back unavailable routes to 1–2', () => {
+    expect(resolveOutputChannelPair(5, 12)).toBe(5)
+    expect(resolveOutputChannelPair(11, 12)).toBe(11)
+    expect(resolveOutputChannelPair(12, 12)).toBe(1)
+    expect(resolveOutputChannelPair(5, 4)).toBe(1)
+  })
+
   it('sets the output on the shared AudioContext rather than an individual media element', async () => {
     const setSinkId = vi.fn().mockResolvedValue(undefined)
 

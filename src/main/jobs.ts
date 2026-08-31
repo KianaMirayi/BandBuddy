@@ -4,6 +4,7 @@ import { rename, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { Notification } from 'electron'
 import { STEM_ORDER, type ExportRequest, type JobRecord, type StemType } from '@shared/domain.js'
+import { isVideoSource } from '@shared/media-formats.js'
 import type { BandBuddyDatabase, StoredStemInput } from './database.js'
 import type { ExportService } from './exporter.js'
 import type { Logger } from './logger.js'
@@ -118,16 +119,33 @@ export class JobScheduler {
     const preparedRoot = path.join(taskRoot, 'prepared')
     mkdirSync(workerRoot, { recursive: true })
     mkdirSync(preparedRoot, { recursive: true })
+    let separationSource = source
+    const videoSource = isVideoSource(source)
+    if (videoSource) {
+      this.database.setJobState(jobId, 'preparing', '正在提取视频音频', 0.01)
+      this.changed()
+      separationSource = path.join(taskRoot, 'video-audio.wav')
+      await this.media.extractVideoAudio(source, path.join(taskRoot, 'video-audio.part.wav'), separationSource, signal)
+      const previousVideo = this.database.getVideoRelative(songId)
+      if (!previousVideo || !existsSync(this.paths.resolveLibraryPath(settings.libraryRoot, previousVideo))) {
+        this.database.setJobState(jobId, 'preparing', '正在准备同步播放视频', 0.06)
+        this.changed()
+        const video = await this.media.prepareVideo(source, taskRoot, path.join(songRoot, 'source'), signal)
+        this.database.setVideoRelative(songId, this.paths.toLibraryRelative(settings.libraryRoot, video))
+      }
+    }
+    if (signal.aborted) throw new Error('JOB_CANCELLED')
+    const preparationProgress = videoSource ? 0.12 : 0.01
     let selected = payload.deviceOverride ?? this.runtime.getInfo().selectedDevice
     let segment = payload.segment ?? 7
     let workerErrorCode: string | null = null
     let result: Awaited<ReturnType<RuntimeManager['runWorker']>>
     const execute = async (): Promise<Awaited<ReturnType<RuntimeManager['runWorker']>>> => {
       workerErrorCode = null
-      this.database.setJobState(jobId, 'preparing', `加载 HTDemucs · ${selected.toUpperCase()}`, 0.01)
+      this.database.setJobState(jobId, 'preparing', `加载 HTDemucs · ${selected.toUpperCase()}`, preparationProgress)
       this.changed()
       return await this.runtime.runWorker([
-        'separate', '--input', source, '--output', workerRoot, '--model-root', settings.modelRoot,
+        'separate', '--input', separationSource, '--output', workerRoot, '--model-root', settings.modelRoot,
         '--device', selected, '--segment', String(segment)
       ], signal, 0, (message) => {
         if (message.type === 'error') workerErrorCode = String(message.code ?? 'WORKER_FAILED')
@@ -136,7 +154,7 @@ export class JobScheduler {
           const stage = String(message.stage ?? 'separating')
           const status = stage === 'preparing' ? 'preparing' : stage === 'postprocessing' ? 'postprocessing' : 'separating'
           const phase = message.message ? String(message.message) : stage === 'separating' ? '正在分离六条音轨' : '准备分离'
-          this.database.setJobState(jobId, status, phase, Math.min(0.82, workerProgress * 0.82))
+          this.database.setJobState(jobId, status, phase, Math.min(0.82, preparationProgress + workerProgress * (0.82 - preparationProgress)))
           this.changed()
         }
       })
@@ -256,6 +274,10 @@ export class JobScheduler {
   private humanError(code: string): string {
     if (code === 'CUDA_OOM') return '显存仍不足，可使用 CPU 重试'
     if (code === 'FFMPEG_MISSING') return '音频工具缺失，请修复应用资源'
+    if (code === 'VIDEO_AUDIO_EXTRACTION_FAILED') return '视频音频提取失败，请检查源文件后重试'
+    if (code === 'VIDEO_PREPARATION_FAILED') return '视频转码失败，请检查源文件或磁盘空间后重试'
+    if (code === 'NO_AUDIO_STREAM') return '视频中没有可分轨的音频'
+    if (code === 'NO_VIDEO_STREAM' || code === 'INVALID_VIDEO_DURATION') return '视频画面或时长无效'
     if (code === 'MODEL_HASH_MISMATCH') return '模型校验失败，请清理模型缓存后重试'
     if (code === 'DISK_FULL') return '磁盘空间不足'
     return '任务执行失败，可查看日志后重试'

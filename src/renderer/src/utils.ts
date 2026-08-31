@@ -160,6 +160,26 @@ const USER_ERROR_MESSAGES: ReadonlyArray<{ pattern: RegExp; message: string }> =
     message: '暂不支持这种音频格式'
   },
   {
+    pattern: /UNSUPPORTED_MEDIA_FORMAT/,
+    message: '暂不支持这种文件格式，请选择支持的音频或视频文件'
+  },
+  {
+    pattern: /NO_AUDIO_STREAM/,
+    message: '文件中没有音轨，无法进行分轨；请选择带声音的视频或音频文件'
+  },
+  {
+    pattern: /NO_VIDEO_STREAM|INVALID_VIDEO_DURATION/,
+    message: '视频画面或时长无效，请检查文件是否完整'
+  },
+  {
+    pattern: /VIDEO_AUDIO_EXTRACTION_FAILED/,
+    message: '视频音频提取失败，请检查文件及磁盘空间后重试'
+  },
+  {
+    pattern: /VIDEO_PREPARATION_FAILED/,
+    message: '视频转码失败，请检查文件及磁盘空间后重试'
+  },
+  {
     pattern: /UNSUPPORTED_LYRICS_FORMAT/,
     message: '请选择 .lrc 格式的歌词文件'
   },

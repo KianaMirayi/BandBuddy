@@ -13,6 +13,7 @@ import type {
   StemType
 } from '@shared/domain.js'
 import { parseLrc } from '@shared/lyrics.js'
+import { AUDIO_EXTENSIONS, SOURCE_AUDIO_EXTENSIONS, SOURCE_MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, isVideoSource } from '@shared/media-formats.js'
 import type { BandBuddyDatabase } from './database.js'
 import type { Logger } from './logger.js'
 import type { MediaService } from './media.js'
@@ -22,8 +23,7 @@ import { inferStemType } from './stem-detection.js'
 
 export { inferStemType } from './stem-detection.js'
 
-export const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.flac', '.m4a', '.aac'])
-export const SOURCE_AUDIO_EXTENSIONS = new Set([...AUDIO_EXTENSIONS, '.ncm'])
+export { AUDIO_EXTENSIONS, SOURCE_AUDIO_EXTENSIONS, SOURCE_MEDIA_EXTENSIONS, VIDEO_EXTENSIONS }
 const MAX_LRC_BYTES = 2 * 1024 * 1024
 
 function decodeLyricsFile(bytes: Buffer): string {
@@ -63,7 +63,11 @@ export class ImportService {
     const result = await dialog.showOpenDialog({
       title: '导入歌曲',
       properties: ['openFile'],
-      filters: [{ name: '音频文件', extensions: ['mp3', 'wav', 'flac', 'm4a', 'aac', 'ncm'] }]
+      filters: [
+        { name: '音频与视频', extensions: [...SOURCE_MEDIA_EXTENSIONS].map((extension) => extension.slice(1)) },
+        { name: '视频文件', extensions: [...VIDEO_EXTENSIONS].map((extension) => extension.slice(1)) },
+        { name: '音频文件', extensions: [...SOURCE_AUDIO_EXTENSIONS].map((extension) => extension.slice(1)) }
+      ]
     })
     const filePath = result.filePaths[0]
     if (result.canceled || !filePath) return null
@@ -117,7 +121,13 @@ export class ImportService {
     const selected = options.filePath ? { path: options.filePath } : await this.chooseSource()
     if (!selected) return this.emptyResult()
     const sourcePath = path.resolve(selected.path)
-    await this.validateAudioFile(sourcePath, SOURCE_AUDIO_EXTENSIONS)
+    await this.validateAudioFile(sourcePath, SOURCE_MEDIA_EXTENSIONS)
+    const videoSource = isVideoSource(sourcePath)
+    if (videoSource && !this.media.toolsReady()) throw new Error('FFMPEG_MISSING')
+    // Validate streams before copying a potentially large video into the library.
+    const sourceProbe = videoSource ? await this.media.probe(sourcePath) : null
+    if (videoSource && !sourceProbe?.video) throw new Error('NO_VIDEO_STREAM')
+    if (sourceProbe && sourceProbe.durationMs <= 0) throw new Error('INVALID_VIDEO_DURATION')
     const sourceHash = await sha256(sourcePath)
     const duplicate = this.database.findBySourceHash(sourceHash)
     if (duplicate && !options.forceDuplicate) {
@@ -143,7 +153,7 @@ export class ImportService {
       await copyFile(sourcePath, copiedSource)
       if (await sha256(copiedSource) !== sourceHash) throw new Error('SOURCE_COPY_HASH_MISMATCH')
     }
-    const probe = await this.media.probe(copiedSource)
+    const probe = sourceProbe ?? await this.media.probe(copiedSource)
 
     let artworkRelPath: string | null = null
     const artwork = path.join(songRoot, 'artwork', 'cover.jpg')
@@ -281,7 +291,9 @@ export class ImportService {
   }
 
   private async validateAudioFile(filePath: string, extensions = AUDIO_EXTENSIONS): Promise<void> {
-    if (!extensions.has(path.extname(filePath).toLowerCase())) throw new Error('UNSUPPORTED_AUDIO_FORMAT')
+    if (!extensions.has(path.extname(filePath).toLowerCase())) {
+      throw new Error(extensions === SOURCE_MEDIA_EXTENSIONS ? 'UNSUPPORTED_MEDIA_FORMAT' : 'UNSUPPORTED_AUDIO_FORMAT')
+    }
     const info = await stat(filePath)
     if (!info.isFile() || info.size === 0) throw new Error('EMPTY_AUDIO_FILE')
   }

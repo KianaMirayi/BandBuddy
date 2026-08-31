@@ -5,6 +5,7 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import { protocol } from 'electron'
 import { type BpmDetectionResult, type MediaCapabilities, type MusicalKeyAnalysis, type StemType } from '@shared/domain.js'
+import { SOURCE_MEDIA_EXTENSIONS } from '@shared/media-formats.js'
 import { detectBpmFromSamples, type BpmAnalysis } from './bpm-detection.js'
 import { detectMusicalKeyFromSamples } from './key-detection.js'
 import type { BandBuddyDatabase } from './database.js'
@@ -22,15 +23,20 @@ export interface AudioProbe {
   format: string | null
   title: string | null
   artist: string | null
+  video: { codec: string | null; pixelFormat: string | null } | null
 }
 
 interface ProbeJson {
-  streams?: Array<{ codec_type?: string; sample_rate?: string; channels?: number }>
+  streams?: Array<{
+    codec_type?: string; codec_name?: string; pix_fmt?: string; sample_rate?: string; channels?: number
+    disposition?: { attached_pic?: number }
+  }>
   format?: { duration?: string; format_name?: string; tags?: Record<string, string> }
 }
 
 const mimeTypes: Record<string, string> = {
   '.flac': 'audio/flac', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac',
+  '.mp4': 'video/mp4', '.webm': 'video/webm',
   '.json': 'application/json', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp'
 }
 
@@ -74,7 +80,7 @@ export class MediaService {
       ffmpegReady: this.verifiedToolRoot !== null,
       ffmpegVersion: TOOL_TARGET.ffmpegVersion,
       protocolVersion: 1,
-      supportedInputFormats: ['mp3', 'wav', 'flac', 'm4a', 'aac'],
+      supportedInputFormats: [...SOURCE_MEDIA_EXTENSIONS].map((extension) => extension.slice(1)),
       supportedExportFormats: ['wav', 'flac', 'mp3'],
       internalSampleRate: 44100,
       internalChannels: 2,
@@ -94,21 +100,81 @@ export class MediaService {
   async probe(filePath: string): Promise<AudioProbe> {
     const ffprobe = this.tool('ffprobe')
     if (!ffprobe) {
-      return { durationMs: 0, sampleRate: null, channels: null, format: path.extname(filePath).slice(1), title: null, artist: null }
+      return { durationMs: 0, sampleRate: null, channels: null, format: path.extname(filePath).slice(1), title: null, artist: null, video: null }
     }
     const result = await runProcess(ffprobe, ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', filePath])
     if (result.code !== 0) throw new Error(`AUDIO_PROBE_FAILED:${result.stderr.slice(-800)}`)
     const parsed = JSON.parse(result.stdout) as ProbeJson
     const audio = parsed.streams?.find((stream) => stream.codec_type === 'audio')
     if (!audio) throw new Error('NO_AUDIO_STREAM')
+    const video = parsed.streams?.find((stream) => stream.codec_type === 'video' && stream.disposition?.attached_pic !== 1)
     const tags = parsed.format?.tags ?? {}
+    const durationSeconds = Number(parsed.format?.duration ?? 0)
     return {
-      durationMs: Math.max(0, Math.round(Number(parsed.format?.duration ?? 0) * 1000)),
+      durationMs: Number.isFinite(durationSeconds) ? Math.max(0, Math.round(durationSeconds * 1000)) : 0,
       sampleRate: audio.sample_rate ? Number(audio.sample_rate) : null,
       channels: audio.channels ?? null,
       format: parsed.format?.format_name?.split(',')[0] ?? path.extname(filePath).slice(1),
       title: tags.title ?? tags.TITLE ?? null,
-      artist: tags.artist ?? tags.ARTIST ?? null
+      artist: tags.artist ?? tags.ARTIST ?? null,
+      video: video ? { codec: video.codec_name ?? null, pixelFormat: video.pix_fmt ?? null } : null
+    }
+  }
+
+  async extractVideoAudio(input: string, temporaryOutput: string, finalOutput: string, signal: AbortSignal): Promise<void> {
+    const ffmpeg = this.tool('ffmpeg')
+    if (!ffmpeg) throw new Error('FFMPEG_MISSING')
+    if (signal.aborted) throw new Error('JOB_CANCELLED')
+    const probe = await this.probe(input)
+    if (!probe.video) throw new Error('NO_VIDEO_STREAM')
+    if (probe.durationMs <= 0) throw new Error('INVALID_VIDEO_DURATION')
+    mkdirSync(path.dirname(temporaryOutput), { recursive: true })
+    try {
+      // Use the container timeline for both audio and video. first_pts pads a
+      // delayed audio stream instead of moving it ahead of the picture.
+      const result = await runProcess(ffmpeg, [
+        '-y', '-v', 'error', '-copyts', '-start_at_zero', '-i', input,
+        '-map', '0:a:0', '-vn', '-map_metadata', '-1',
+        '-af', `aresample=async=1:first_pts=0,apad=whole_dur=${(probe.durationMs / 1000).toFixed(3)}`,
+        '-t', (probe.durationMs / 1000).toFixed(3), '-ar', '44100', '-ac', '2', '-c:a', 'pcm_s24le', temporaryOutput
+      ], { signal })
+      if (signal.aborted) throw new Error('JOB_CANCELLED')
+      if (result.code !== 0) throw new Error(`VIDEO_AUDIO_EXTRACTION_FAILED:${result.stderr.slice(-800)}`)
+      await rename(temporaryOutput, finalOutput)
+    } finally {
+      await unlink(temporaryOutput).catch(() => undefined)
+    }
+  }
+
+  async prepareVideo(input: string, temporaryRoot: string, outputRoot: string, signal: AbortSignal): Promise<string> {
+    const ffmpeg = this.tool('ffmpeg')
+    if (!ffmpeg) throw new Error('FFMPEG_MISSING')
+    if (signal.aborted) throw new Error('JOB_CANCELLED')
+    const { video } = await this.probe(input)
+    if (!video) throw new Error('NO_VIDEO_STREAM')
+    const copyH264 = video.codec === 'h264' && ['yuv420p', 'yuvj420p'].includes(video.pixelFormat ?? '')
+    const copyWebm = ['vp8', 'vp9'].includes(video.codec ?? '')
+    const extension = copyH264 ? 'mp4' : 'webm'
+    const temporaryOutput = path.join(temporaryRoot, `playback.part.${extension}`)
+    const finalOutput = path.join(outputRoot, `playback.${extension}`)
+    mkdirSync(temporaryRoot, { recursive: true })
+    mkdirSync(outputRoot, { recursive: true })
+    try {
+      const result = await runProcess(ffmpeg, [
+        '-y', '-v', 'error', '-copyts', '-start_at_zero', '-i', input,
+        '-map', '0:V:0', '-an', '-sn', '-dn', '-map_metadata', '-1',
+        ...(copyH264 || copyWebm
+          ? ['-c:v', 'copy']
+          : ['-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '6', '-row-mt', '1', '-crf', '30', '-b:v', '0', '-pix_fmt', 'yuv420p']),
+        ...(copyH264 ? ['-movflags', '+faststart'] : []),
+        temporaryOutput
+      ], { signal })
+      if (signal.aborted) throw new Error('JOB_CANCELLED')
+      if (result.code !== 0) throw new Error(`VIDEO_PREPARATION_FAILED:${result.stderr.slice(-800)}`)
+      await rename(temporaryOutput, finalOutput)
+      return finalOutput
+    } finally {
+      await unlink(temporaryOutput).catch(() => undefined)
     }
   }
 
@@ -396,6 +462,10 @@ export class MediaService {
     const [songId, kind, assetId] = parts
     if (!songId || !/^[0-9a-f-]{36}$/i.test(songId) || !kind) return null
     const settings = this.database.getSettings()
+    if (kind === 'video' && parts.length === 2) {
+      const relative = this.database.getVideoRelative(songId)
+      return relative ? this.paths.resolveLibraryPath(settings.libraryRoot, relative) : null
+    }
     if (kind === 'artwork') {
       const relative = this.database.getArtworkRelative(songId)
       return relative ? this.paths.resolveLibraryPath(settings.libraryRoot, relative) : null

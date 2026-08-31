@@ -112,7 +112,7 @@ export function ImportDialog({
         if (result.songId) { onOpenChange(false); onImported(result.songId, result.warnings) }
       }
     } catch (reason) {
-      setError(toUserErrorMessage(reason, '导入失败，请检查音频文件后重试'))
+      setError(toUserErrorMessage(reason, '导入失败，请检查音频或视频文件后重试'))
     } finally { setBusy(false) }
   }
 
@@ -121,10 +121,10 @@ export function ImportDialog({
       <Dialog.Overlay className="dialog-overlay" data-dialog-open="true" />
       <Dialog.Content className="dialog-content import-dialog" data-dialog-open="true" aria-describedby={undefined}>
         <Dialog.Title>导入音乐</Dialog.Title><Dialog.Close className="dialog-close"><X /></Dialog.Close>
-        <p className="dialog-lead">源文件会复制到受管曲库，音频处理全部在本机完成。</p>
+        <p className="dialog-lead">源文件会复制到受管曲库。视频会先提取音频再分轨，所有处理均在本机完成。</p>
         <div className="dialog-tabs"><button className={mode === 'song' ? 'active' : ''} onClick={() => setMode('song')}><FileAudio size={18} />导入歌曲</button><button className={mode === 'stems' ? 'active' : ''} onClick={() => setMode('stems')}><SlidersHorizontal size={18} />导入现有分轨</button></div>
         {mode === 'song' ? <div className={`drop-zone ${source ? 'selected' : ''}`} onClick={() => void chooseSource()}>
-          <span>{source ? <Check size={25} /> : <Upload size={25} />}</span><b>{source?.name ?? '选择 MP3、WAV、FLAC、M4A 或 AAC'}</b><small>{source ? '点击重新选择' : '支持中文、空格与 Emoji 路径'}</small>
+          <span>{source ? <Check size={25} /> : <Upload size={25} />}</span><b>{source?.name ?? '选择音频或视频文件'}</b><small>{source ? '点击重新选择' : '音频：MP3 / WAV / FLAC / M4A / AAC / NCM · 视频：MP4 / M4V / MOV / MKV / WebM / AVI'}</small>
         </div> : <>
           <div className="stem-pick-actions"><button className="outline-button" onClick={() => void chooseStems('files')}><FileAudio size={17} />选择多个文件</button><button className="outline-button" onClick={() => void chooseStems('folder')}><FolderOpen size={17} />选择文件夹</button></div>
           <div className="stem-mapping">{stems.length === 0 ? <p>BandBuddy 会按常见中英文文件名自动识别，导入前可手动改类。</p> : stems.map((stem, index) => <label key={`${stem.path}-${index}`}><span title={stem.path}>{stem.name}</span><select value={stem.inferredType ?? ''} onChange={(event) => setStems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, inferredType: (event.target.value || null) as StemType | null } : item))}><option value="">暂不导入</option>{STEM_ORDER.map((type) => <option value={type} key={type}>{STEM_META[type].shortLabel} · {STEM_META[type].label}</option>)}</select></label>)}</div>

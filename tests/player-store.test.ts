@@ -29,4 +29,17 @@ describe('practice track button rules', () => {
     expect(usePlayerStore.getState().practice?.metronomeOffsetMs).toBe(-86)
     usePlayerStore.getState().unload()
   })
+
+  it.each([
+    [-24, -12], [24, 12], [-3.8, -4], [2.2, 2], [NaN, 0], [Infinity, 0]
+  ])('normalizes a saved or edited pitch of %s before playback and autosave', (input, expected) => {
+    const song = fixtureDetail(fixtureSongs[0]!)
+    song.practice.pitchSemitones = input
+    usePlayerStore.getState().loadSong(song)
+    expect(usePlayerStore.getState().practice?.pitchSemitones).toBe(expected)
+    usePlayerStore.getState().patchPractice({ pitchSemitones: 0 })
+    usePlayerStore.getState().patchPractice({ pitchSemitones: input })
+    expect(usePlayerStore.getState().practice?.pitchSemitones).toBe(expected)
+    usePlayerStore.getState().unload()
+  })
 })

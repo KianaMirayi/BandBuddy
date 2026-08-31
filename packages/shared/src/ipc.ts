@@ -72,7 +72,10 @@ export const trackStateSchema = z.object({
   stemType: stemTypeSchema,
   gainDb: z.number().min(-60).max(6),
   muted: z.boolean(),
-  solo: z.boolean()
+  solo: z.boolean(),
+  outputChannelPair: z.number().int().min(1).max(31).refine((value) => value % 2 === 1, {
+    message: '输出通道对必须从奇数通道开始'
+  })
 })
 
 const trackOrderKeySchema = z.custom<TrackOrderKey>(isTrackOrderKey, '无效的轨道顺序标识')

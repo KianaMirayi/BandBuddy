@@ -6,8 +6,17 @@ export const PLAYBACK_RATE_MAX = 4
 export const PITCH_SEMITONES_MIN = -12
 export const PITCH_SEMITONES_MAX = 12
 export const PITCH_SEMITONES_STEP = 1
+
+export function normalizePitchSemitones(value: number | null | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(PITCH_SEMITONES_MIN, Math.min(PITCH_SEMITONES_MAX, Math.round(value)))
+    : 0
+}
+
 export const METRONOME_OFFSET_MIN_MS = -3000
 export const METRONOME_OFFSET_MAX_MS = 3000
+export const DEFAULT_OUTPUT_CHANNEL_PAIR = 1
+export const MAX_ROUTABLE_OUTPUT_CHANNELS = 32
 
 export type ComputeDevice = 'auto' | 'cuda' | 'mps' | 'cpu'
 export type RuntimeStatus =
@@ -114,6 +123,37 @@ export interface TrackState {
   gainDb: number
   muted: boolean
   solo: boolean
+  /** One-based first channel of a stereo pair: 1 => 1–2, 3 => 3–4. */
+  outputChannelPair: number
+}
+
+export function isValidOutputChannelPair(value: unknown): value is number {
+  return Number.isInteger(value)
+    && (value as number) >= DEFAULT_OUTPUT_CHANNEL_PAIR
+    && (value as number) < MAX_ROUTABLE_OUTPUT_CHANNELS
+    && (value as number) % 2 === 1
+}
+
+export function normalizeTrackStates(
+  savedTracks: readonly Partial<TrackState>[] | null | undefined
+): TrackState[] {
+  const byStem = new Map<StemType, Partial<TrackState>>()
+  for (const track of savedTracks ?? []) {
+    if (!track.stemType || !STEM_ORDER.includes(track.stemType)) continue
+    byStem.set(track.stemType, track)
+  }
+  return STEM_ORDER.map((stemType) => {
+    const saved = byStem.get(stemType)
+    return {
+      stemType,
+      gainDb: saved?.gainDb ?? 0,
+      muted: saved?.muted ?? false,
+      solo: saved?.solo ?? false,
+      outputChannelPair: isValidOutputChannelPair(saved?.outputChannelPair)
+        ? saved.outputChannelPair
+        : DEFAULT_OUTPUT_CHANNEL_PAIR
+    }
+  })
 }
 
 export type TrackOrderKey = `stem:${StemType}` | `recording:${string}`
@@ -255,6 +295,7 @@ export interface SongDetail extends SongSummary {
   keyAnalysis: MusicalKeyAnalysis | null
   timeSignature: string | null
   sourceFormat: string | null
+  videoUrl: string | null
   sampleRate: number | null
   channels: number | null
   lyrics: LyricsDocument | null
@@ -540,7 +581,7 @@ export function createDefaultPracticeState(songId: string): PracticeState {
     zoom: 1,
     scroll: 0,
     selectedStem: 'vocals',
-    tracks: STEM_ORDER.map((stemType) => ({ stemType, gainDb: 0, muted: false, solo: false })),
+    tracks: normalizeTrackStates(null),
     trackOrder: STEM_ORDER.map(stemTrackOrderKey),
     updatedAt: new Date(0).toISOString()
   }

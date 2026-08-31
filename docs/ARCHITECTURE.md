@@ -30,13 +30,19 @@ SQLite 启用 WAL、foreign keys 与 busy timeout。迁移前复制数据库，�
 
 ## Audio pipeline
 
-内部音频统一为 44.1 kHz、stereo、24-bit FLAC。播放器为六个受控 `HTMLAudioElement`，经各自 MediaElementAudioSource 和 GainNode 汇入 master。Mute 优先于 Solo；存在任意未静音 Solo 时只播放这些 Solo。增益使用短斜坡，主轨时钟定期修正其余音轨漂移。
+内部音频统一为 44.1 kHz、stereo、24-bit FLAC。播放器为六个受控 `HTMLAudioElement`，各自经过 MediaElementAudioSource 和 GainNode 后保持独立立体声身份。选中 Web Audio 输出设备后，renderer 读取 `AudioDestinationNode.maxChannelCount`，建立最多 32 通道的离散 ChannelMerger 图；每条分轨把左右声道接到练习状态保存的 `1–2 / 3–4 / …` 通道对。设备不再提供某个已保存通道对时，播放临时回退到 1–2，但不覆盖设置，设备恢复后可自动重新使用。节拍器和录音 Take 预听固定到 1–2。立体声输出继续经过 master compressor；多通道输出绕过仅支持双声道的 compressor，避免把各通道折叠回立体声。
 
-非鼓分轨通过 Signalsmith Stretch AudioWorklet 实时做 `-12–+12` 半音变调，鼓轨与录音 Take 走不变调旁路，并按处理器报告的延迟统一补偿；干湿切换使用短交叉淡化。AudioWorklet 初始化失败时回到原调并通知界面。排练播放器串行准备歌曲，恢复播放前等待当前加载完成，并把同一处理延迟应用到排练录音叠加层。
+Mute 优先于 Solo；存在任意未静音 Solo 时只播放这些 Solo。增益使用短斜坡，主轨时钟定期修正其余音轨漂移。
+
+非鼓分轨先合并为保持各轨左右声道位置的 10 通道总线，再通过 Signalsmith Stretch AudioWorklet 实时做 `-12–+12` 半音变调；处理后重新拆回五条独立立体声轨。鼓轨与录音 Take 走不变调旁路，并按处理器报告的延迟统一补偿；干湿切换使用短交叉淡化。AudioWorklet 初始化失败时回到原调并通知界面。排练播放器串行准备歌曲，恢复播放前等待当前加载完成，并把同一处理延迟应用到排练录音叠加层。
 
 原生音频宿主负责 WASAPI/CoreAudio/ASIO 录音，也提供离线 Signalsmith WAV 变调命令。录音 Take 绑定录制时的速度和升降调；预听、排练叠加与导出只使用与当前练习设置一致的 Take。启动时 renderer 会同时核对 Web Audio 输出设备与原生录音设备，失效的显式选择回到当前系统默认值。
 
 WaveSurfer 只绘制后台生成的 min/max peaks，不拥有播放时钟。六轨共享游标、缩放、滚动和 A–B 区间。练习状态 500 ms 防抖保存，播放中每 5 秒以及隐藏/页面切换时立即保存。
+
+视频来源保留原文件，在任务准备阶段通过 FFmpeg 提取 44.1 kHz、stereo、24-bit WAV 后交给同一分轨 worker。提取时保留容器时间轴，并为延迟开始的音轨补静音，避免提前于画面。播放器使用单独的静音视频副本：兼容的 H.264 或 VP8/VP9 直接重封装，其他编码转为 VP9。副本先写临时文件，完成后 rename 并保存相对路径；`bandbuddy-media://song/<song-id>/video` 只读取该受管文件并支持 Range，不向 renderer 暴露源路径。重新分轨复用已生成的视频副本。
+
+视频练习保留六轨混音控制，以单个 video 元素代替波形。音频仍是主时钟，VideoSynchronizer 同步播放状态、速度、跳转与循环，并按变调处理延迟对齐画面；视频的原音轨不参与输出。全屏使用同一个播放器容器与控制回调，不创建第二套音频时钟。A–B 按钮采用关闭、已设置 A、循环中三种状态；第二次点击从 A 点立即播放，第三次点击清除边界。跳回按钮在有效循环中跳到 A，否则跳到 0，并跳过预备拍直接播放。
 
 ## Runtime and worker protocol
 

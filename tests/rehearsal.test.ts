@@ -36,6 +36,7 @@ function song(id: string, durationMs = 60_000): SongDetail {
     sourceFormat: 'wav',
     sampleRate: 48_000,
     channels: 2,
+    videoUrl: null,
     lyrics: null,
     stems: [{
       id: `${id.slice(0, 24)}111111111111`,

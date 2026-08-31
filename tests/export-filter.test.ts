@@ -4,7 +4,7 @@ import { buildMixFilter } from '../src/main/export-filter.js'
 describe('FFmpeg mix filter', () => {
   it('applies track gain, master gain, A-B, speed and limiter', () => {
     const filter = buildMixFilter({
-      tracks: [{ inputIndex: 0, state: { stemType: 'vocals', gainDb: -6, muted: false, solo: false } }],
+      tracks: [{ inputIndex: 0, state: { stemType: 'vocals', gainDb: -6, muted: false, solo: false, outputChannelPair: 1 } }],
       masterGainDb: 3,
       playbackRate: 0.8,
       loopStartMs: 1250,
@@ -22,7 +22,7 @@ describe('FFmpeg mix filter', () => {
 
   it('chains pitch-preserving tempo filters for the 0.2x-4x range', () => {
     const filter = buildMixFilter({
-      tracks: [{ inputIndex: 0, state: { stemType: 'vocals', gainDb: 0, muted: false, solo: false } }],
+      tracks: [{ inputIndex: 0, state: { stemType: 'vocals', gainDb: 0, muted: false, solo: false, outputChannelPair: 1 } }],
       masterGainDb: 0,
       playbackRate: 4,
       loopStartMs: null,
@@ -31,7 +31,7 @@ describe('FFmpeg mix filter', () => {
     expect(filter).toContain('atempo=2.0000,atempo=2.0000')
 
     const slowFilter = buildMixFilter({
-      tracks: [{ inputIndex: 0, state: { stemType: 'vocals', gainDb: 0, muted: false, solo: false } }],
+      tracks: [{ inputIndex: 0, state: { stemType: 'vocals', gainDb: 0, muted: false, solo: false, outputChannelPair: 1 } }],
       masterGainDb: 0,
       playbackRate: 0.2,
       loopStartMs: null,
@@ -44,7 +44,7 @@ describe('FFmpeg mix filter', () => {
     const filter = buildMixFilter({
       tracks: [{
         inputIndex: 0,
-        state: { stemType: 'vocals', gainDb: -6, muted: false, solo: false },
+        state: { stemType: 'vocals', gainDb: -6, muted: false, solo: false, outputChannelPair: 1 },
         preprocessed: true
       }],
       masterGainDb: 0,

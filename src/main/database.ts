@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 import {
   createDefaultRecordingAudioSettings,
   createDefaultPracticeState,
+  normalizeTrackStates,
   type AppSettings,
   type JobRecord,
   type JobStatus,
@@ -43,6 +44,7 @@ interface SongRow {
   source_rel_path: string | null
   source_hash: string | null
   source_format: string | null
+  video_rel_path: string | null
   duration_ms: number
   sample_rate: number | null
   channels: number | null
@@ -496,6 +498,9 @@ export const DATABASE_MIGRATIONS = [
     ALTER TABLE songs ADD COLUMN key_analysis_json TEXT;
     ALTER TABLE songs ADD COLUMN musical_key_source TEXT CHECK(musical_key_source IN ('detected', 'manual'));
     UPDATE songs SET musical_key_source = 'manual' WHERE musical_key IS NOT NULL;
+  `,
+  `
+    ALTER TABLE songs ADD COLUMN video_rel_path TEXT;
   `
 ]
 
@@ -680,7 +685,7 @@ export class BandBuddyDatabase {
       ...savedPractice,
       ...(row.bpm === null ? {} : { metronomeBpm: row.bpm }),
       metronomeOffsetMs: row.beat_offset_ms,
-      tracks: savedPractice.tracks ?? defaults.tracks
+      tracks: normalizeTrackStates(savedPractice.tracks)
     }
     const recordingTakes = this.getRecordingTakes(id)
     const recordingTracks = this.getRecordingTracks(id)
@@ -693,6 +698,7 @@ export class BandBuddyDatabase {
       keyAnalysis: parseKeyAnalysis(row.key_analysis_json),
       timeSignature: row.time_signature,
       sourceFormat: row.source_format,
+      videoUrl: row.video_rel_path ? `bandbuddy-media://song/${row.id}/video` : null,
       sampleRate: row.sample_rate,
       channels: row.channels,
       lyrics: row.lyrics_lrc ? parseLrc(row.lyrics_lrc, row.lyrics_file_name ?? 'lyrics.lrc') : null,
@@ -1499,6 +1505,16 @@ export class BandBuddyDatabase {
   getArtworkRelative(songId: string): string | null {
     const row = this.sqlite.prepare('SELECT artwork_rel_path FROM songs WHERE id = ?').get(songId) as { artwork_rel_path: string | null } | undefined
     return row?.artwork_rel_path ?? null
+  }
+
+  getVideoRelative(songId: string): string | null {
+    const row = this.sqlite.prepare('SELECT video_rel_path FROM songs WHERE id = ?').get(songId) as { video_rel_path: string | null } | undefined
+    return row?.video_rel_path ?? null
+  }
+
+  setVideoRelative(songId: string, relativePath: string): void {
+    this.sqlite.prepare('UPDATE songs SET video_rel_path = ?, updated_at = ? WHERE id = ?')
+      .run(relativePath, new Date().toISOString(), songId)
   }
 
   deleteSongRecord(id: string): void {
