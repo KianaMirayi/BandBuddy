@@ -14,10 +14,12 @@ describe('compute device selection', () => {
     expect(selectComputeDevice('cuda', 'darwin', { nvidiaDetected: false, mpsAvailable: true })).toBe('mps')
   })
 
-  it('retries an unavailable accelerator on MPS and then CPU', () => {
-    expect(fallbackComputeDevice('cuda', 'darwin', 'CUDA_NOT_AVAILABLE')).toBe('mps')
+  it('retries unavailable or out-of-memory accelerators on CPU without reducing quality', () => {
+    expect(fallbackComputeDevice('cuda', 'darwin', 'CUDA_NOT_AVAILABLE')).toBe('cpu')
     expect(fallbackComputeDevice('cuda', 'win32', 'CUDA_NOT_AVAILABLE')).toBe('cpu')
     expect(fallbackComputeDevice('mps', 'darwin', 'MPS_NOT_AVAILABLE')).toBe('cpu')
+    expect(fallbackComputeDevice('cuda', 'win32', 'ACCELERATOR_OOM')).toBe('cpu')
+    expect(fallbackComputeDevice('mps', 'darwin', 'ACCELERATOR_OOM')).toBe('cpu')
     expect(fallbackComputeDevice('cpu', 'win32', 'WORKER_FAILED')).toBeNull()
   })
 })

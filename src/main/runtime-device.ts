@@ -26,7 +26,10 @@ export function fallbackComputeDevice(
   platform: NodeJS.Platform,
   failureCode: string | null
 ): 'mps' | 'cpu' | null {
-  if (current === 'cuda' && failureCode === 'CUDA_NOT_AVAILABLE') return platform === 'darwin' ? 'mps' : 'cpu'
-  if (current === 'mps' && failureCode === 'MPS_NOT_AVAILABLE') return 'cpu'
+  void platform
+  if (
+    current !== 'cpu' &&
+    ['CUDA_NOT_AVAILABLE', 'MPS_NOT_AVAILABLE', 'ACCELERATOR_OOM', 'CUDA_OOM'].includes(failureCode ?? '')
+  ) return 'cpu'
   return null
 }

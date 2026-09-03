@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./build/icon.png" width="112" alt="BandBuddy 图标">
   <h1>BandBuddy</h1>
-  <p><strong>把一首歌拆成可以反复练的六条轨道。</strong></p>
+  <p><strong>把一首歌拆成可以反复练的九条轨道。</strong></p>
   <p>面向乐手的本地优先桌面练琴工作台 · Local-first practice workstation for musicians.</p>
   <p>
     <a href="https://github.com/dourgey/BandBuddy/releases/latest"><img src="https://img.shields.io/github/v/release/dourgey/BandBuddy?display_name=tag&sort=semver" alt="Latest release"></a>
@@ -14,13 +14,13 @@
 
 BandBuddy 的核心不是“把人声去掉”，而是让一首歌真正变得**可练**：听清目标声部、放慢困难小节、循环到肌肉记住、跟着准确节拍进入，再在下一次打开时从原来的位置继续。
 
-> [项目主页](https://bandbuddy.lonelyme.cn/) · [下载最新正式版](https://github.com/dourgey/BandBuddy/releases/latest) · [隐私说明](https://bandbuddy.lonelyme.cn/privacy.html) · 源码版本 `1.2.0` · Windows x64 / macOS x64 / Apple Silicon
+> [项目主页](https://bandbuddy.lonelyme.cn/) · [下载最新正式版](https://github.com/dourgey/BandBuddy/releases/latest) · [隐私说明](https://bandbuddy.lonelyme.cn/privacy.html) · 源码版本 `2.0.0` · Windows x64 / macOS Apple Silicon
 
 ## 从听歌到练琴
 
 ```mermaid
 flowchart LR
-  A["导入歌曲或现有分轨"] --> B["本地生成六条音轨"]
+  A["导入歌曲"] --> B["本地一次生成九条音轨"]
   B --> C["听清：Mute / Solo / 增益"]
   C --> D["拆练：变速 / 升降调 / A–B 循环"]
   D --> E["练准：BPM / 节拍器 / 预备拍"]
@@ -33,22 +33,22 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 
 ## 界面
 
-![BandBuddy 曲库：最近练习、歌曲状态与六轨信息](./docs/images/library.png)
+![BandBuddy 曲库：最近练习、歌曲状态与分轨信息](./docs/images/library.png)
 
 曲库会记住最近练过什么、练到哪里，并把分轨任务状态、收藏和搜索放在同一个入口。截图使用演示数据，项目不附带其中的音乐。
 
-![BandBuddy 练习室：同步六轨波形与底部练习控制](./docs/images/practice-room.png)
+![BandBuddy 练习室：同步波形与底部练习控制](./docs/images/practice-room.png)
 
-练习室让 Vocal、Drums、Bass、Guitar、Piano、Other 六轨共用一条播放时钟和同一段 A–B 区间，所有调整都会自动保存。
+练习室让已生成的分轨共用一条播放时钟和同一段 A–B 区间。HTDemucs 六轨完成后歌曲就能开始练习，三条吉他细分轨会在后台继续生成；期间“吉他分轨”按钮会显示等待说明，完成后在按钮旁即时通知。打开该模式时，原 Guitar 自动静音并隐藏，切换为 Acoustic、Lead、Rhythm 三轨。所有调整都会自动保存。
 
 ## 为练琴准备的功能
 
 ### 听清每一个声部
 
-- 使用本地 Demucs 模型生成 `Vocal / Drums / Bass / Guitar / Piano / Other` 六轨。
-- 六条同步波形可独立 `Mute`、`Solo` 和调节增益，另有主音量控制。
+- 分轨分成两个持久化阶段：先生成 `Vocal / Drums / Bass / Guitar / Piano / Other` 六轨并开放练习室，再在后台补齐 `Acoustic / Lead / Rhythm`。
+- 原六轨模式和吉他细分模式即时切换；隐藏备选轨不参与 Solo、独立输出、快捷键选择或默认混音导出。
+- 当前模式的同步波形可独立 `Mute`、`Solo` 和调节增益，另有主音量控制。
 - 选择多通道输出设备后，每条分轨可独立路由到 `1–2 / 3–4 / …` 立体声通道对，便于通过 Loopback 等虚拟声卡送入 DAW。
-- 可以直接导入已有分轨；BandBuddy 会按常见中英文文件名识别声部，也允许在导入前手动修正。
 - Piano 是实验性声部；复杂编曲里可能与 Guitar 或 Other 串音，界面会持续提示这一点。
 
 ### 把难点缩小，反复练会
@@ -57,13 +57,13 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 - 点击“跳回并播放”可立即重练：循环启用时跳回 A 点，否则跳回歌曲开头；暂停时也会直接开始播放，不重复预备拍。
 - 提供 `0.5× / 0.8× / 1.0× / 1.2× / 1.5×` 快捷速度，以及 `0.20×–4.00×` 无级变速，播放时保持音高。
 - 底部播放栏可直接点 `♭ / ♯` 降低或升高 1 个半音，范围为 `-12–+12`（上下各一个八度），并可一键恢复原调；点击调值可打开滑轨。使用 Signalsmith Stretch 实时统一调整人声、贝斯、吉他、钢琴及其他分轨，鼓轨保持原音并自动补偿延迟，播放速度不变。
-- 六轨由同一主时钟校正，变速、跳转和循环时仍保持同步。
+- 已生成轨由同一主时钟校正；后台补齐吉他三轨时会无中断接入当前歌曲，之后的变速、跳转、循环和模式切换仍保持同步。
 - 播放位置、速度、升降调、循环、每轨 Mute/Solo/增益/输出通道对、缩放与滚动视图都会自动保存。
 
 ### 看着视频一起练
 
-- 支持导入 `MP4 / M4V / MOV / MKV / WebM / AVI`。后台先提取音频，再交给本地 Demucs 分轨；原视频文件会保留在受管曲库中。
-- 视频歌曲在练习室显示视频画面和六轨混音控制，替代波形视图；纯音频歌曲仍使用原来的六轨波形。
+- 支持导入 `MP4 / M4V / MOV / MKV / WebM / AVI`。后台先提取音频，再交给本地分轨；原视频文件会保留在受管曲库中。
+- 视频歌曲在练习室显示视频画面和当前模式的混音控制，替代波形视图；纯音频歌曲使用同步波形。
 - 画面跟随分轨的播放、暂停、跳转、A–B 循环和 `0.20×–4.00×` 速度变化，原视频音轨静音，避免与分轨重复发声。
 - 支持按钮或双击画面进入全屏；全屏内可控制播放、进度、速度、循环和跳回重练。
 - 视频必须包含音轨。不兼容的画面编码会在本机转换为可播放副本，处理时间和额外磁盘占用取决于视频长度与分辨率。
@@ -97,7 +97,7 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 
 - 导入 `MP3 / WAV / FLAC / M4A / AAC`，并兼容用户有权使用的本地 `.ncm` 文件。
 - 搜索歌曲或艺术家，按收藏、处理中、最近练习筛选，并在列表/卡片布局间切换。
-- 后台任务展示分轨、标准化和导出进度；支持取消、重试，以及显存不足后的 CPU 重试。
+- 后台任务展示分轨和导出进度；支持取消、重试，以及显存不足后使用相同质量参数的 CPU 重试。
 - 可从曲库或练习室编辑标题、艺术家、BPM、歌曲调与拍号；歌曲调既可本地识别，也可手动纠正。
 - 启动时会核对已保存的播放与录音设备；设备断开后自动回到当前系统默认值，并保留仍然有效的设备配置。
 - 设置中的 Debug 模式切换后立即生效，会把 renderer、preload、IPC 与进程异常写入 `debug.log`；设置页可直接在文件管理器中定位该文件，代理凭据、令牌和密码会先脱敏。
@@ -131,7 +131,9 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 - **可验证的依赖**：uv、FFmpeg 和模型按固定版本下载并校验 SHA-256；代理凭据会从日志中脱敏。
 - **可恢复的数据操作**：SQLite 使用 WAL 和迁移备份；重新分轨成功前保留旧版本，删除音乐时先移动到回收站。
 
-首次使用 AI 分轨前，需要在设置中安装本地环境。请预留约 **8–15 GB** 空间；安装会下载私有 Python、Torch 与约 1 GB 模型，支持取消和从缓存续传。只导入现有分轨时不需要安装 Demucs 环境。
+首次使用分轨前，需要在设置中安装本地环境。请预留约 **8–15 GB** 空间；安装会下载私有 Python、Torch 与固定的四份分轨权重，支持取消和从 `.part` 缓存续传。四份权重全部通过大小和 SHA-256 校验后，环境才会进入可用状态。
+
+设置中的“高音质分轨”只决定新任务两个阶段的最终存储格式：关闭时全部轨统一保存为 44.1 kHz、stereo、320 kbps MP3，开启时统一保存为 44.1 kHz、stereo、24-bit FLAC。推理链路始终使用同一最高质量参数；已有歌曲只有重新分轨后才会改变格式。
 
 ### 中国大陆与受限网络
 
@@ -142,32 +144,31 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 | uv 管理的 CPython | npmmirror 的 `python-build-standalone` 镜像 | uv 使用其固定发行清单；下载可缓存重试 |
 | Demucs 与常规 Python 包 | 阿里云 PyPI | 直接依赖保持固定版本 |
 | PyTorch / Torchaudio | 阿里云 PyTorch wheels | 根据 NVIDIA 驱动选择 `cu126`–`cu130`，不支持时安装 CPU 版 |
-| HTDemucs 6s 权重 | ModelScope 固定 revision | 与上游文件相同的完整 SHA-256：`34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd` |
+| 四份分轨权重 | [ModelScope `BandBuddy-Models`](https://modelscope.cn/models/Zzzzzzorz/BandBuddy-Models) 固定 `v2.0.0` 分支 | 固定文件路径、字节数与完整 SHA-256；四份全部验证后原子写入完成标记 |
 
-大陆源不可用时，可先切换另一下载源再点“修复环境”；已完成的缓存和模型 `.part` 文件会继续使用。公司网络还可以选择系统代理或填写手动 HTTP(S) 代理。镜像只改变下载地址，uv、FFmpeg 与模型原有的校验不会关闭。
+环境镜像不可用时，可先切换另一环境下载源再点“修复环境”；已完成的缓存和权重 `.part` 文件会继续使用。公司网络还可以选择系统代理或填写手动 HTTP(S) 代理。Python 包与桌面工具可切换镜像，权重下载地址和 `v2.0.0` 分支不可由用户修改，所有完整性校验始终开启。
 
 ## 安装 Windows 版
 
 前往 [Releases](https://github.com/dourgey/BandBuddy/releases/latest)，按需要下载：
 
-- `BandBuddy-1.2.0-x64.exe`：安装版，可选择安装位置并创建桌面/开始菜单快捷方式。
-- `BandBuddy-1.2.0-x64-portable.exe`：便携版，不写入安装目录。
+- `BandBuddy-2.0.0-x64.exe`：安装版，可选择安装位置并创建桌面/开始菜单快捷方式。
+- `BandBuddy-2.0.0-x64-portable.exe`：便携版，不写入安装目录。
 - `SHA256SUMS.txt`：用于校验下载文件完整性。
 
 开源 CI 在没有 Authenticode 证书时会发布**未签名**构建，Windows SmartScreen 可能显示“未知发布者”。Release 说明会标明该版本是否已签名；如果你不接受未签名程序，可从源码构建，或等待 Microsoft Store / 已签名版本。
 
 ## 安装 macOS 版
 
-[Releases](https://github.com/dourgey/BandBuddy/releases/latest) 同时提供 Intel 与 Apple Silicon 原生 `DMG` 和 `ZIP`：
+[Releases](https://github.com/dourgey/BandBuddy/releases/latest) 提供 Apple Silicon 原生 `DMG` 和 `ZIP`：
 
-- `BandBuddy-1.2.0-macos-x64.dmg` / `.zip`：Intel Mac。
-- `BandBuddy-1.2.0-macos-arm64.dmg` / `.zip`：Apple Silicon Mac。
+- `BandBuddy-2.0.0-macos-arm64.dmg` / `.zip`：Apple Silicon Mac。
 
 当前 macOS 构建尚未使用 Apple Developer ID 签名或公证，Gatekeeper 会提示开发者身份无法验证；请先核对 Release 中对应架构的 SHA-256 文件。
 
 ## 从源码运行
 
-需要 Windows 10/11 x64 或 macOS（Intel / Apple Silicon）、Node.js 24+、pnpm 11+、CMake 3.24+ 与 C++20 编译器。Windows 可从微软的 [C++ Build Tools 指引](https://learn.microsoft.com/zh-cn/cpp/build/building-on-the-command-line?view=msvc-170) 安装 Visual Studio 2022，并勾选“使用 C++ 的桌面开发”和 CMake 工具；构建脚本会自动查找其自带的 `cmake.exe`，也可通过 `CMAKE_EXECUTABLE` 指定。macOS 使用 Xcode Command Line Tools。系统无需预装 Python、Torch、CUDA Toolkit 或 FFmpeg。
+需要 Windows 10/11 x64 或 macOS Apple Silicon、Node.js 24+、pnpm 11+、CMake 3.24+ 与 C++20 编译器。Windows 可从微软的 [C++ Build Tools 指引](https://learn.microsoft.com/zh-cn/cpp/build/building-on-the-command-line?view=msvc-170) 安装 Visual Studio 2022，并勾选“使用 C++ 的桌面开发”和 CMake 工具；构建脚本会自动查找其自带的 `cmake.exe`，也可通过 `CMAKE_EXECUTABLE` 指定。macOS 使用 Xcode Command Line Tools。系统无需预装 Python、Torch、CUDA Toolkit 或 FFmpeg。
 
 ```powershell
 git clone https://github.com/dourgey/BandBuddy.git
@@ -221,8 +222,8 @@ macOS 包必须在对应架构的 Mac 上构建，以便 Electron、`better-sqli
 ## CI 与 Release
 
 - [Windows CI](./.github/workflows/windows.yml) 在 `main`、Pull Request 和手动运行时执行资源校验、类型检查、测试与未签名 Electron 打包，并保存构建产物。
-- [macOS CI](./.github/workflows/macos.yml) 使用 Intel 与 Apple Silicon 原生 runner 并行测试，验证包内 uv / FFmpeg 架构后保存 DMG、ZIP 与 SHA-256 文件。
-- [Release workflow](./.github/workflows/release.yml) 在推送与 `package.json` 版本一致的 `v*` 标签时自动打包 Windows x64、macOS x64 与 macOS arm64，生成 SHA-256 校验文件并创建 GitHub Release。
+- [macOS CI](./.github/workflows/macos.yml) 使用 Apple Silicon 原生 runner，验证包内 uv / FFmpeg 与 HQ6 模块后保存 DMG、ZIP 与 SHA-256 文件。
+- [Release workflow](./.github/workflows/release.yml) 在推送与 `package.json` 版本一致的 `v*` 标签时自动打包 Windows x64 与 macOS arm64，生成 SHA-256 校验文件并创建 GitHub Release。
 - 如果仓库配置了 `WINDOWS_CSC_LINK` 和 `WINDOWS_CSC_KEY_PASSWORD`，Release workflow 会生成并验证签名包；否则会明确发布未签名社区构建。
 
 ## 项目结构
@@ -233,21 +234,22 @@ macOS 包必须在对应架构的 Mac 上构建，以便 Electron、`better-sqli
 | `src/preload` | 经过约束的 renderer ↔ main IPC 桥 |
 | `src/renderer` | React 曲库、练习室、多轨播放器与波形界面 |
 | `native/audio-host` | RtAudio / PortAudio 原生录音宿主与设备时钟协议 |
-| `python/worker` | 本地 Demucs 工作进程及模型下载协议 |
+| `python/worker` | HTDemucs 六轨与吉他三轨两阶段工作进程、固定 ModelScope 权重清单及断点下载协议 |
 | `python/msr_mvp` | 模型/轨数无关的 MSS → MSR 实验管线与适配器 |
+| `python/guitar_separator_hq` | 生产使用的固定 HQ6 木吉他 / Lead / Rhythm 推理模块与独立审计工具 |
 | `packages/shared` | 领域类型、Zod schema 与 IPC 合约 |
 | `resources` / `scripts` | 固定桌面工具清单、下载和验证脚本 |
 | `tests` | 音频规则、迁移、路径安全、任务状态和播放器测试 |
 
-更详细的进程边界、数据原子性、音频管线和 worker 协议见 [架构说明](./docs/ARCHITECTURE.md)；MSS → MSR 独立实验见 [MVP 说明](./python/msr_mvp/README.md) 和 [实测记录](./docs/experiments/msr-mvp-2026-08-25.md)。第三方组件及许可见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+更详细的进程边界、数据原子性、音频管线和 worker 协议见 [架构说明](./docs/ARCHITECTURE.md)；MSS → MSR 独立实验见 [MVP 说明](./python/msr_mvp/README.md) 和 [实测记录](./docs/experiments/msr-mvp-2026-08-25.md)；吉他三轨逆向与最高音质实验见 [HQ6 说明](./python/guitar_separator_hq/README.md) 和 [完整报告](./docs/experiments/bd-guitar-separator-v14.5-hq6-2026-09-03.md)。第三方组件及许可见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 
 ## 当前边界
 
-`1.2.0` 同时提供 Windows x64、macOS x64 与 macOS arm64 构建。当前不包含账号/云同步、Web 端或自动更新；录音时建议使用声卡的硬件直通监听，Piano 分轨仍为实验性功能。欢迎通过 [Issues](https://github.com/dourgey/BandBuddy/issues) 提交可复现的问题和练琴场景建议。
+`2.0.0` 首发支持 Windows x64 与 macOS Apple Silicon，不包含 Intel Mac、账号/云同步、Web 端或自动更新；录音时建议使用声卡的硬件直通监听，Piano 分轨仍为实验性功能。欢迎通过 [Issues](https://github.com/dourgey/BandBuddy/issues) 提交可复现的问题和练琴场景建议。
 
 ## 许可与音频权利
 
-BandBuddy 源码使用 [Apache License 2.0](./LICENSE)。分轨功能使用 Demucs 4.1.0 代码；其 MIT 许可与 Meta 版权声明收录在 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。BandBuddy 安装包不包含 HTDemucs 预训练权重；用户确认后，应用才会从所选官方或镜像源下载固定权重，并校验与上游一致的完整 SHA-256。Demucs 上游明确以 MIT 许可发布软件代码，但未对预训练权重单独公布明确许可；商业使用或再分发权重前，请自行确认相应权利。
+BandBuddy 源码使用 [Apache License 2.0](./LICENSE)。分轨运行时使用 Demucs 4.1.0 与固定的 MSST 架构代码；相应 MIT 许可和版权声明收录在 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。四份权重不打入安装包，而是从公开的 [ModelScope 权重仓库](https://modelscope.cn/models/Zzzzzzorz/BandBuddy-Models) `v2.0.0` 分支下载；该仓库按 GPL-3.0 发布并保留来源与第三方声明。
 
 其他第三方工具、库和模型保留各自许可。BandBuddy 不附带音乐；请只导入、处理和导出你拥有或已获授权使用的音频。
 

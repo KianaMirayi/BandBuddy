@@ -4,7 +4,7 @@ import { rename, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { protocol } from 'electron'
-import { type BpmDetectionResult, type MediaCapabilities, type MusicalKeyAnalysis, type StemType } from '@shared/domain.js'
+import { type BpmDetectionResult, type MediaCapabilities, type MusicalKeyAnalysis, type StemStorageFormat, type StemType } from '@shared/domain.js'
 import { SOURCE_MEDIA_EXTENSIONS } from '@shared/media-formats.js'
 import { detectBpmFromSamples, type BpmAnalysis } from './bpm-detection.js'
 import { detectMusicalKeyFromSamples } from './key-detection.js'
@@ -238,15 +238,31 @@ export class MediaService {
     return end ? Math.max(0, Math.round(Number(end[1]) * 1000)) : null
   }
 
-  async normalize(input: string, temporaryOutput: string, finalOutput: string, targetDurationMs?: number): Promise<AudioProbe> {
+  async normalize(
+    input: string,
+    temporaryOutput: string,
+    finalOutput: string,
+    targetDurationMs?: number,
+    storageFormat: StemStorageFormat = 'flac24',
+    linearGain = 1
+  ): Promise<AudioProbe> {
     const ffmpeg = this.tool('ffmpeg')
     if (!ffmpeg) throw new Error('FFMPEG_MISSING')
     mkdirSync(path.dirname(temporaryOutput), { recursive: true })
-    const durationArgs = targetDurationMs && targetDurationMs > 0
-      ? ['-af', `apad=whole_dur=${(targetDurationMs / 1000).toFixed(3)}`, '-t', (targetDurationMs / 1000).toFixed(3)] : []
+    if (!Number.isFinite(linearGain) || linearGain <= 0 || linearGain > 1) throw new Error('INVALID_STEM_ENCODING_GAIN')
+    const filters = linearGain < 1 ? [`volume=${linearGain.toFixed(12)}`] : []
+    const durationSeconds = targetDurationMs && targetDurationMs > 0
+      ? (targetDurationMs / 1000).toFixed(3)
+      : null
+    if (durationSeconds) filters.push(`apad=whole_dur=${durationSeconds}`)
+    const filterArgs = filters.length > 0 ? ['-af', filters.join(',')] : []
+    const durationArgs = durationSeconds ? ['-t', durationSeconds] : []
+    const codecArgs = storageFormat === 'flac24'
+      ? ['-c:a', 'flac', '-sample_fmt', 's32', '-bits_per_raw_sample', '24']
+      : ['-c:a', 'libmp3lame', '-b:a', '320k']
     const result = await runProcess(ffmpeg, [
-      '-y', '-v', 'error', '-i', input, '-map_metadata', '-1', '-vn', ...durationArgs, '-ar', '44100', '-ac', '2',
-      '-c:a', 'flac', '-sample_fmt', 's32', '-bits_per_raw_sample', '24', temporaryOutput
+      '-y', '-v', 'error', '-i', input, '-map_metadata', '-1', '-vn', ...filterArgs, ...durationArgs, '-ar', '44100', '-ac', '2',
+      ...codecArgs, temporaryOutput
     ])
     if (result.code !== 0) throw new Error(`NORMALIZE_FAILED:${result.stderr.slice(-800)}`)
     await rename(temporaryOutput, finalOutput)

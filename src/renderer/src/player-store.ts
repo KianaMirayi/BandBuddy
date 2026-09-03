@@ -1,10 +1,19 @@
 import { create } from 'zustand'
-import { createDefaultPracticeState, normalizePitchSemitones, type PracticeState, type SongDetail, type StemType, type TrackState } from '@shared/domain.js'
+import { createDefaultPracticeState, isStemVisible, normalizePitchSemitones, normalizeSelectedStemForGuitarMode, type PracticeState, type SongDetail, type StemType, type TrackState } from '@shared/domain.js'
 
-export function patchTrackStates(tracks: readonly TrackState[], stemType: StemType, patch: Partial<TrackState>): TrackState[] {
+export function patchTrackStates(
+  tracks: readonly TrackState[],
+  stemType: StemType,
+  patch: Partial<TrackState>,
+  guitarSplitEnabled = false
+): TrackState[] {
   const enablesSolo = patch.solo === true
   return tracks.map((track) => {
-    if (track.stemType !== stemType) return enablesSolo && track.solo ? { ...track, solo: false } : track
+    if (track.stemType !== stemType) {
+      return enablesSolo && track.solo && isStemVisible(track.stemType, guitarSplitEnabled)
+        ? { ...track, solo: false }
+        : track
+    }
     const next = { ...track, ...patch }
     if (patch.solo === true) next.muted = false
     if (patch.muted === true) next.solo = false
@@ -34,19 +43,28 @@ export const usePlayerStore = create<PlayerStore>((set) => ({
   currentMs: 0,
   playing: false,
   selectedStem: 'vocals',
-  loadSong: (song) => set({
-    song,
-    practice: {
+  loadSong: (song) => set(() => {
+    const guitarSplitEnabled = song.practice.guitarSplitEnabled ?? false
+    const selectedStem = normalizeSelectedStemForGuitarMode(
+      song.practice.selectedStem ?? 'vocals',
+      guitarSplitEnabled
+    ) ?? 'vocals'
+    return {
+      song,
+      practice: {
       ...createDefaultPracticeState(song.id),
       ...song.practice,
+      guitarSplitEnabled,
+      selectedStem,
       pitchSemitones: normalizePitchSemitones(song.practice.pitchSemitones),
       ...(song.bpm === null ? {} : { metronomeBpm: song.bpm }),
       metronomeOffsetMs: song.beatOffsetMs,
       tracks: song.practice.tracks.map((track) => ({ ...track }))
-    },
-    currentMs: song.practice.positionMs,
-    selectedStem: song.practice.selectedStem ?? 'vocals',
-    playing: false
+      },
+      currentMs: song.practice.positionMs,
+      selectedStem,
+      playing: false
+    }
   }),
   updateSongDetails: (song) => set((state) => state.song?.id === song.id
     ? { song: { ...song, practice: state.practice ?? song.practice } }
@@ -54,17 +72,28 @@ export const usePlayerStore = create<PlayerStore>((set) => ({
   unload: () => set({ song: null, practice: null, currentMs: 0, playing: false }),
   setPlaying: (playing) => set({ playing }),
   setCurrentMs: (currentMs) => set({ currentMs }),
-  patchPractice: (patch) => set((state) => state.practice ? {
-    practice: {
-      ...state.practice,
-      ...patch,
-      pitchSemitones: normalizePitchSemitones(patch.pitchSemitones ?? state.practice.pitchSemitones)
+  patchPractice: (patch) => set((state) => {
+    if (!state.practice) return state
+    const guitarSplitEnabled = patch.guitarSplitEnabled ?? state.practice.guitarSplitEnabled
+    const selectedStem = normalizeSelectedStemForGuitarMode(
+      patch.selectedStem ?? state.selectedStem,
+      guitarSplitEnabled
+    ) ?? 'vocals'
+    return {
+      selectedStem,
+      practice: {
+        ...state.practice,
+        ...patch,
+        guitarSplitEnabled,
+        selectedStem,
+        pitchSemitones: normalizePitchSemitones(patch.pitchSemitones ?? state.practice.pitchSemitones)
+      }
     }
-  } : state),
+  }),
   patchTrack: (stemType, patch) => set((state) => state.practice ? {
     practice: {
       ...state.practice,
-      tracks: patchTrackStates(state.practice.tracks, stemType, patch)
+      tracks: patchTrackStates(state.practice.tracks, stemType, patch, state.practice.guitarSplitEnabled)
     }
   } : state),
   setSelectedStem: (selectedStem) => set((state) => ({

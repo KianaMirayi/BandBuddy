@@ -64,7 +64,8 @@ function reconcileRecordingAudio(
   let inputChannelMode = current.inputChannelMode
   if (inputChannelMode === 'stereo' && input && input.inputChannels < 2) inputChannelMode = 'mono'
   const requiredChannels = inputChannelMode === 'mono' ? 1 : 2
-  const channelsValid = current.inputChannels.length === requiredChannels
+  const channelsValid = Boolean(input)
+    && current.inputChannels.length === requiredChannels
     && current.inputChannels.every((channel) => Number.isInteger(channel) && channel >= 0 && (!input || channel < input.inputChannels))
     && (requiredChannels === 1 || current.inputChannels[1] === current.inputChannels[0]! + 1)
   const inputChannels = channelsValid
@@ -72,8 +73,10 @@ function reconcileRecordingAudio(
     : inputChannelMode === 'mono' ? [0] : [0, 1]
 
   let sampleRate = current.sampleRate
-  if (sampleRate && input && output && input.sampleRates.length > 0 && output.sampleRates.length > 0) {
-    if (!input.sampleRates.includes(sampleRate) || !output.sampleRates.includes(sampleRate)) sampleRate = 0
+  if (sampleRate) {
+    if (!input || !output) sampleRate = 0
+    else if (input.sampleRates.length > 0 && output.sampleRates.length > 0
+      && (!input.sampleRates.includes(sampleRate) || !output.sampleRates.includes(sampleRate))) sampleRate = 0
   }
 
   const selectionChanged = backend !== current.backend
@@ -156,12 +159,9 @@ async function scanStartupAudioSettings(): Promise<AppSettings> {
   return reconciled === settings ? settings : await api.settings.update(reconciled)
 }
 
-let startupAudioSettingsPromise: Promise<AppSettings> | null = null
-
 export function loadStartupAudioSettings(): Promise<AppSettings> {
-  startupAudioSettingsPromise ??= scanStartupAudioSettings().catch((error: unknown) => {
-    startupAudioSettingsPromise = null
-    throw error
-  })
-  return startupAudioSettingsPromise
+  // Do not retain a process-wide device snapshot. A renderer can be recreated
+  // while the desktop process stays alive, and every such app open must query
+  // the hardware that is connected now.
+  return scanStartupAudioSettings()
 }

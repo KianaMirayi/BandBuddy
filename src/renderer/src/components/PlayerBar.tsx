@@ -63,7 +63,7 @@ export function PlayerBar({
   if (!song || !practice) {
     return <footer className="player-bar is-empty">
       <div className="player-empty-mark"><ListMusic size={19} /></div>
-      <div><b>选择一首歌曲开始练习</b><span>导入歌曲后，BandBuddy 会在本地生成六条音轨</span></div>
+      <div><b>选择一首歌曲开始练习</b><span>基础六轨完成即可练习，吉他三轨会在后台继续生成</span></div>
     </footer>
   }
 

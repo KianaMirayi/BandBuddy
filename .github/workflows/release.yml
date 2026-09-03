@@ -49,12 +49,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install HQ6 test dependencies
+        run: python -m pip install --disable-pip-version-check -r python/guitar_separator_hq/requirements-test.txt
+
       - name: Fetch verified desktop tools
         run: pnpm tools:fetch
 
       - name: Validate and test
         run: |
-          python -m py_compile python/worker/worker.py
+          python -m compileall -q python/worker python/guitar_separator_hq
+          pnpm test:model-bundle
+          pnpm test:guitar-hq
           pnpm test
 
       - name: Package Windows release
@@ -96,7 +101,7 @@ jobs:
           $version = $tag.TrimStart('v')
           $assets = @(Get-ChildItem "$env:PACKAGE_DIR/BandBuddy-*.exe" | Sort-Object Name | ForEach-Object FullName)
           $assets += (Resolve-Path "$env:PACKAGE_DIR/SHA256SUMS.txt").Path
-          $notes = "Windows 10/11 x64 · $env:SIGNING_STATE.`nmacOS x64 / arm64 · unsigned and not notarized.`n`n请使用随附的 SHA-256 文件校验下载；macOS 构建会在 Windows Release 创建后自动附加。"
+          $notes = "Windows 10/11 x64 · $env:SIGNING_STATE.`nmacOS Apple Silicon · unsigned and not notarized.`n`n请使用随附的 SHA-256 文件校验下载；macOS 构建会在 Windows Release 创建后自动附加。"
           $versionNotes = "docs/release-notes/$tag.md"
           $notesFile = Join-Path $env:RUNNER_TEMP "BandBuddy-$tag-release-notes.md"
 
@@ -117,17 +122,9 @@ jobs:
           }
 
   macos-release:
-    name: macOS ${{ matrix.arch }} release
+    name: macOS Apple Silicon release
     needs: windows-release
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            runner: macos-15-intel
-          - arch: arm64
-            runner: macos-15
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-15
     timeout-minutes: 90
 
     steps:
@@ -139,7 +136,7 @@ jobs:
         run: |
           version="$(node -p "require('./package.json').version")"
           test "$GITHUB_REF_NAME" = "v$version"
-          test "$(uname -m)" = "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
+          test "$(uname -m)" = "arm64"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -161,12 +158,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install HQ6 test dependencies
+        run: python -m pip install --disable-pip-version-check -r python/guitar_separator_hq/requirements-test.txt
+
       - name: Fetch verified native desktop tools
         run: pnpm tools:fetch
 
       - name: Validate and test
         run: |
-          python -m py_compile python/worker/worker.py
+          python -m compileall -q python/worker python/guitar_separator_hq
+          pnpm test:model-bundle
+          pnpm test:guitar-hq
           pnpm test
 
       - name: Package unsigned macOS release
@@ -182,14 +184,15 @@ jobs:
           test -x "$app_path/Contents/Resources/bin/uv"
           test -x "$app_path/Contents/Resources/bin/ffmpeg"
           test -x "$app_path/Contents/Resources/bin/ffprobe"
-          test -x "$app_path/Contents/Resources/audio-host/${{ matrix.arch == 'x64' && 'darwin-x64' || 'darwin-arm64' }}/bandbuddy-audio-host"
+          test -x "$app_path/Contents/Resources/audio-host/darwin-arm64/bandbuddy-audio-host"
+          test -f "$app_path/Contents/Resources/worker/guitar_separator_hq/separator.py"
           "$app_path/Contents/Resources/bin/uv" --version
           "$app_path/Contents/Resources/bin/ffmpeg" -version
-          "$app_path/Contents/Resources/audio-host/${{ matrix.arch == 'x64' && 'darwin-x64' || 'darwin-arm64' }}/bandbuddy-audio-host" --self-test
+          "$app_path/Contents/Resources/audio-host/darwin-arm64/bandbuddy-audio-host" --self-test
           shopt -s nullglob
-          files=(release-macos/BandBuddy-*-macos-${{ matrix.arch }}.dmg release-macos/BandBuddy-*-macos-${{ matrix.arch }}.zip)
+          files=(release-macos/BandBuddy-*-macos-arm64.dmg release-macos/BandBuddy-*-macos-arm64.zip)
           test "${#files[@]}" -eq 2
-          shasum -a 256 "${files[@]}" | sed 's#release-macos/##' > "release-macos/SHA256SUMS-macos-${{ matrix.arch }}.txt"
+          shasum -a 256 "${files[@]}" | sed 's#release-macos/##' > "release-macos/SHA256SUMS-macos-arm64.txt"
 
       - name: Upload macOS assets to GitHub Release
         shell: bash
@@ -197,8 +200,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           assets=(
-            release-macos/BandBuddy-*-macos-${{ matrix.arch }}.dmg
-            release-macos/BandBuddy-*-macos-${{ matrix.arch }}.zip
-            release-macos/SHA256SUMS-macos-${{ matrix.arch }}.txt
+            release-macos/BandBuddy-*-macos-arm64.dmg
+            release-macos/BandBuddy-*-macos-arm64.zip
+            release-macos/SHA256SUMS-macos-arm64.txt
           )
           gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"

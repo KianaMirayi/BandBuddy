@@ -22,7 +22,7 @@ export function statusLabel(status: string): string {
     ready: '已完成', queued: '等待中', blockedRuntime: '等待环境', processing: '处理中',
     preparing: '准备中', separating: '分离中', postprocessing: '处理中', cancelling: '取消中',
     cancelled: '已取消', interrupted: '已中断', completed: '已完成', failed: '失败',
-    missing: '未安装', detecting: '检测中', installing: '安装中', downloadingModel: '下载模型', verifying: '校验中'
+    missing: '未安装', detecting: '检测中', installing: '安装中', downloadingModel: '准备资源', verifying: '校验中'
   } as Record<string, string>)[status] ?? status
 }
 
@@ -216,8 +216,8 @@ const USER_ERROR_MESSAGES: ReadonlyArray<{ pattern: RegExp; message: string }> =
     message: '歌曲不存在或已被删除'
   },
   {
-    pattern: /CUDA_OOM/,
-    message: '显存不足，可使用 CPU 重试'
+    pattern: /ACCELERATOR_OOM|CUDA_OOM/,
+    message: '加速设备内存不足，已尝试使用 CPU'
   },
   {
     pattern: /CUDA_NOT_AVAILABLE|MPS_NOT_AVAILABLE/,
@@ -229,7 +229,11 @@ const USER_ERROR_MESSAGES: ReadonlyArray<{ pattern: RegExp; message: string }> =
   },
   {
     pattern: /MODEL_(?:HASH_MISMATCH|MARKER_MISSING|MARKER_INVALID|MARKER_MISMATCH|BAG_MISSING_OR_CHANGED|FILE_MISSING)/,
-    message: '模型文件损坏或不完整，请清理模型缓存后重试'
+    message: '分轨资源损坏或不完整，请清理分轨资源缓存后重试'
+  },
+  {
+    pattern: /ORIGINAL_SOURCE_NOT_AVAILABLE/,
+    message: '这首歌没有原始音频，不能重新分轨'
   },
   {
     pattern: /MODEL_DOWNLOAD_FAILED|INCOMPLETE_DOWNLOAD|UV_DOWNLOAD_HTTP_/,

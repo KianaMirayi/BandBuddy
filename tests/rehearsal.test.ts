@@ -24,6 +24,7 @@ function song(id: string, durationMs = 60_000): SongDetail {
     progress: 1,
     phase: null,
     stemTypes: ['vocals'],
+    guitarSplitStatus: 'missing',
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     lastPracticedAt: null,

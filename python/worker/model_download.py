@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Download pinned Demucs v4 model files without Hugging Face.
+"""Install BandBuddy's pinned v2.0.0 separation bundle from ModelScope.
 
-The file names and bag definitions below are pinned to facebookresearch/demucs:
-https://github.com/facebookresearch/demucs/tree/main/demucs/remote
-The default URL is the official Demucs source; configured mirrors must serve
-the exact same bytes and are checked before installation.
+Every byte count and SHA-256 is compiled into the application. Downloads use
+``.part`` files and HTTP Range so interrupted installs resume safely. The
+bundle marker is written atomically only after all four checkpoints and the
+Demucs repository descriptor have been verified together.
 """
 
 from __future__ import annotations
@@ -22,46 +22,60 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-OFFICIAL_MODEL_ROOT = "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/"
-DEFAULT_MODEL_ROOT = Path.cwd() / "models"
+MODEL_REPOSITORY = "Zzzzzzorz/BandBuddy-Models"
+MODEL_REVISION = "v2.0.0"
+MODEL_BASE_URL = (
+    f"https://modelscope.cn/models/{MODEL_REPOSITORY}/resolve/{MODEL_REVISION}"
+)
+BUNDLE_DIRECTORY = "bandbuddy-stems-v2.0.0"
+DEMUCS_MODEL_NAME = "htdemucs_6s"
+DEMUCS_BAG = "models: ['5c90dfd2']\n"
 CHUNK_SIZE = 1024 * 1024
 
 
-class ModelSpec(NamedTuple):
-    bag: str
-    files: tuple[str, ...]
+class BundleFile(NamedTuple):
+    key: str
+    filename: str
+    size: int
+    sha256: str
 
 
-MODEL_SPECS: dict[str, ModelSpec] = {
-    "htdemucs_ft": ModelSpec(
-        bag=(
-            "models: ['f7e0c4bc', 'd12395a8', '92cfc3b6', '04573f0d']\n"
-            "weights:\n"
-            "  - [1., 0., 0., 0.]\n"
-            "  - [0., 1., 0., 0.]\n"
-            "  - [0., 0., 1., 0.]\n"
-            "  - [0., 0., 0., 1.]\n"
-        ),
-        files=(
-            "f7e0c4bc-ba3fe64a.th",
-            "d12395a8-e57c48e6.th",
-            "92cfc3b6-ef3bcb9c.th",
-            "04573f0d-f3cf25b2.th",
-        ),
+BUNDLE_FILES: tuple[BundleFile, ...] = (
+    BundleFile(
+        "six_stem",
+        "5c90dfd2-34c22ccb.th",
+        54_996_327,
+        "34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd",
     ),
-    "htdemucs_6s": ModelSpec(
-        bag="models: ['5c90dfd2']\n",
-        files=("5c90dfd2-34c22ccb.th",),
+    BundleFile(
+        "acoustic_guitar",
+        "bs_mega_53stem_acoustic-guitar_mvsep.ckpt",
+        77_624_038,
+        "fa386b2e7b1ea4f12b9b5c557444c0dc78648ef4ee299de2759d86457e182b3e",
     ),
-}
-
-PINNED_MODEL_SHA256 = {
-    "5c90dfd2-34c22ccb.th": (
-        "34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd"
+    BundleFile(
+        "electric_guitar",
+        "bs_mega_53stem_electric-guitar_mvsep.ckpt",
+        77_624_038,
+        "cd506bfce9474f91a31001967f2c4935ce4e67f643da3df20d04058da927c553",
     ),
-}
+    BundleFile(
+        "lead_rhythm_guitar",
+        "mbr_lead_rhythm_guitar_listra92.ckpt",
+        337_073_664,
+        "b3c47bca33609ca1ba0bb2d2076410bfd1eb941b051b72afc1f3e24d12b17eef",
+    ),
+)
 
 ProgressCallback = Callable[[float, str], None]
+
+
+def bundle_path(model_root: Path) -> Path:
+    return model_root.expanduser().resolve() / BUNDLE_DIRECTORY
+
+
+def marker_path(model_root: Path) -> Path:
+    return bundle_path(model_root) / ".bundle-complete.json"
 
 
 def sha256_file(path: Path) -> str:
@@ -72,49 +86,45 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def expected_checksum(filename: str) -> str:
-    """Return a pinned SHA-256, or Demucs' embedded prefix for legacy models."""
-    return PINNED_MODEL_SHA256.get(
-        filename, Path(filename).stem.rsplit("-", 1)[1].lower()
-    )
-
-
-def verify_weight(path: Path) -> str:
+def verify_file(path: Path, spec: BundleFile) -> str:
     if not path.is_file():
-        raise RuntimeError(f"MODEL_FILE_MISSING:{path.name}")
-    actual = sha256_file(path)
-    expected = expected_checksum(path.name)
-    if not actual.startswith(expected):
+        raise RuntimeError(f"MODEL_FILE_MISSING:{spec.key}")
+    actual_size = path.stat().st_size
+    if actual_size != spec.size:
         raise RuntimeError(
-            f"MODEL_HASH_MISMATCH:{path.name}:expected {expected}, got {actual[:len(expected)]}"
+            f"MODEL_SIZE_MISMATCH:{spec.key}:expected={spec.size}:actual={actual_size}"
         )
-    return actual
+    actual_hash = sha256_file(path)
+    if actual_hash != spec.sha256:
+        raise RuntimeError(
+            f"MODEL_HASH_MISMATCH:{spec.key}:expected={spec.sha256}:actual={actual_hash}"
+        )
+    return actual_hash
 
 
-def repository_path(model_root: Path) -> Path:
-    return model_root.resolve() / "demucs-v4"
-
-
-def marker_path(model_root: Path, model: str) -> Path:
-    return repository_path(model_root) / f".{model}.verified.json"
-
-
-def verify_model(model: str, model_root: Path) -> Path:
-    spec = MODEL_SPECS[model]
-    target = repository_path(model_root)
-    bag_path = target / f"{model}.yaml"
-    if not bag_path.is_file() or bag_path.read_text("utf-8") != spec.bag:
-        raise RuntimeError(f"MODEL_BAG_MISSING_OR_CHANGED:{model}")
-    hashes = {filename: verify_weight(target / filename) for filename in spec.files}
-    marker = marker_path(model_root, model)
+def verify_bundle(model_root: Path, required_keys: tuple[str, ...] | None = None) -> Path:
+    target = bundle_path(model_root)
+    bag = target / f"{DEMUCS_MODEL_NAME}.yaml"
+    if not bag.is_file() or bag.read_text("utf-8") != DEMUCS_BAG:
+        raise RuntimeError("MODEL_BAG_MISSING_OR_CHANGED")
+    marker = marker_path(model_root)
     if not marker.is_file():
-        raise RuntimeError(f"MODEL_MARKER_MISSING:{model}")
+        raise RuntimeError("MODEL_MARKER_MISSING")
     try:
         recorded = json.loads(marker.read_text("utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise RuntimeError(f"MODEL_MARKER_INVALID:{model}") from error
-    if recorded.get("model") != model or recorded.get("files") != hashes:
-        raise RuntimeError(f"MODEL_MARKER_MISMATCH:{model}")
+        raise RuntimeError("MODEL_MARKER_INVALID") from error
+    expected_hashes = {spec.filename: spec.sha256 for spec in BUNDLE_FILES}
+    if (recorded.get("repository") != MODEL_REPOSITORY or recorded.get("revision") != MODEL_REVISION or recorded.get("files") != expected_hashes):
+        raise RuntimeError("MODEL_MARKER_MISMATCH")
+    selected = BUNDLE_FILES
+    if required_keys is not None:
+        requested = set(required_keys)
+        selected = tuple(spec for spec in BUNDLE_FILES if spec.key in requested)
+        if {spec.key for spec in selected} != requested:
+            raise RuntimeError("MODEL_BUNDLE_KEY_UNKNOWN")
+    for spec in selected:
+        verify_file(target / spec.filename, spec)
     return target
 
 
@@ -126,137 +136,161 @@ def _content_length(headers: object) -> int | None:
         return None
 
 
-def _download_once(url: str, destination: Path, progress: Callable[[float], None]) -> None:
+def _download_once(
+    spec: BundleFile,
+    destination: Path,
+    progress: Callable[[float], None],
+) -> None:
     partial = destination.with_name(destination.name + ".part")
-    offset = partial.stat().st_size if partial.exists() else 0
-    headers = {"User-Agent": "BandBuddy/0.1 Demucs-model-downloader"}
+    if partial.is_file() and partial.stat().st_size > spec.size:
+        partial.unlink()
+    if partial.is_file() and partial.stat().st_size == spec.size:
+        try:
+            verify_file(partial, spec)
+        except RuntimeError:
+            partial.unlink()
+        else:
+            os.replace(partial, destination)
+            progress(1.0)
+            return
+    offset = partial.stat().st_size if partial.is_file() else 0
+    headers = {"User-Agent": "BandBuddy/2.0"}
     if offset:
         headers["Range"] = f"bytes={offset}-"
-    request = Request(url, headers=headers)
-    context = ssl.create_default_context()
-    with urlopen(request, timeout=60, context=context) as response:
+    request = Request(f"{MODEL_BASE_URL}/{spec.filename}", headers=headers)
+    with urlopen(request, timeout=300, context=ssl.create_default_context()) as response:
         status = getattr(response, "status", response.getcode())
         resumed = offset > 0 and status == 206
         if not resumed:
             offset = 0
         length = _content_length(response.headers)
-        total = offset + length if length is not None else None
+        total = offset + length if length is not None else spec.size
         mode = "ab" if resumed else "wb"
-        downloaded = offset
+        written = offset
         with partial.open(mode) as handle:
             while True:
                 block = response.read(CHUNK_SIZE)
                 if not block:
                     break
                 handle.write(block)
-                downloaded += len(block)
-                if total:
-                    progress(min(0.99, downloaded / total))
+                written += len(block)
+                progress(min(0.99, written / spec.size))
             handle.flush()
             os.fsync(handle.fileno())
-    if total is not None and downloaded != total:
-        raise OSError(f"INCOMPLETE_DOWNLOAD:{destination.name}:{downloaded}/{total}")
-    _verify_as(partial, destination.name)
+    if total != spec.size or written != spec.size:
+        raise OSError(
+            f"MODEL_DOWNLOAD_INCOMPLETE:{spec.key}:{written}/{spec.size}:server={total}"
+        )
+    verify_file(partial, spec)
     os.replace(partial, destination)
     progress(1.0)
 
 
-def _verify_as(path: Path, official_name: str) -> Path:
-    """Verify a .part file against the checksum carried by its final name."""
-    actual = sha256_file(path)
-    expected = expected_checksum(official_name)
-    if not actual.startswith(expected):
-        raise RuntimeError(
-            f"MODEL_HASH_MISMATCH:{official_name}:expected {expected}, got {actual[:len(expected)]}"
-        )
-    return path
-
-
 def download_file(
-    url: str,
+    spec: BundleFile,
     destination: Path,
+    *,
     retries: int,
     progress: Callable[[float], None],
 ) -> None:
     if destination.is_file():
         try:
-            verify_weight(destination)
+            verify_file(destination, spec)
             progress(1.0)
             return
         except RuntimeError:
             destination.unlink()
-    last_error: Exception | None = None
+    last_error: BaseException | None = None
+    retry_types = (HTTPError, URLError, TimeoutError, OSError, ssl.SSLError, RuntimeError)
     for attempt in range(retries + 1):
         try:
-            _download_once(url, destination, progress)
+            _download_once(spec, destination, progress)
             return
-        except (HTTPError, URLError, TimeoutError, OSError, ssl.SSLError, RuntimeError) as error:
+        except retry_types as error:
             last_error = error
-            if attempt == retries:
+            if isinstance(error, HTTPError) and error.code in (404, 416):
+                if error.code == 416:
+                    destination.with_name(destination.name + ".part").unlink(missing_ok=True)
+                else:
+                    break
+            if "MODEL_HASH_MISMATCH" in str(error):
+                destination.with_name(destination.name + ".part").unlink(missing_ok=True)
+            if attempt >= retries:
                 break
-            if isinstance(error, RuntimeError) and "MODEL_HASH_MISMATCH" in str(error):
-                destination.with_name(destination.name + ".part").unlink(missing_ok=True)
-            if isinstance(error, HTTPError) and error.code == 416:
-                destination.with_name(destination.name + ".part").unlink(missing_ok=True)
-            time.sleep(min(8.0, 0.75 * (2**attempt)))
-    raise RuntimeError(f"MODEL_DOWNLOAD_FAILED:{destination.name}:{last_error}") from last_error
+            time.sleep(min(10.0, 1.0 + attempt * 1.5))
+    raise RuntimeError(f"MODEL_DOWNLOAD_FAILED:{spec.key}:{last_error}") from last_error
 
 
-def download_model(
-    model: str,
+def install_bundle(
     model_root: Path,
     *,
-    base_url: str = OFFICIAL_MODEL_ROOT,
-    retries: int = 5,
+    retries: int = 8,
     progress: ProgressCallback | None = None,
 ) -> Path:
-    spec = MODEL_SPECS[model]
-    target = repository_path(model_root)
+    target = bundle_path(model_root)
     target.mkdir(parents=True, exist_ok=True)
-    total_files = len(spec.files)
-    for index, filename in enumerate(spec.files):
+    marker_path(model_root).unlink(missing_ok=True)
+    total_bytes = sum(spec.size for spec in BUNDLE_FILES)
+    completed_bytes = 0
+    hashes: dict[str, str] = {}
+    for index, spec in enumerate(BUNDLE_FILES):
         if progress:
-            progress(index / total_files, f"下载 {model} · {index + 1}/{total_files}")
+            progress(completed_bytes / total_bytes, f"正在准备分轨资源 {index + 1}/{len(BUNDLE_FILES)}")
         download_file(
-            base_url.rstrip("/") + "/" + filename,
-            target / filename,
-            retries,
-            lambda fraction, index=index: progress(
-                (index + fraction) / total_files,
-                f"下载 {model} · {index + 1}/{total_files}",
+            spec,
+            target / spec.filename,
+            retries=retries,
+            progress=lambda fraction, completed_bytes=completed_bytes, spec=spec, index=index: progress(
+                (completed_bytes + fraction * spec.size) / total_bytes,
+                f"正在准备分轨资源 {index + 1}/{len(BUNDLE_FILES)}",
             ) if progress else None,
         )
-    (target / f"{model}.yaml").write_text(spec.bag, "utf-8")
-    hashes = {filename: verify_weight(target / filename) for filename in spec.files}
-    marker_path(model_root, model).write_text(json.dumps({
-        "model": model,
-        "source": base_url,
+        hashes[spec.filename] = verify_file(target / spec.filename, spec)
+        completed_bytes += spec.size
+
+    bag = target / f"{DEMUCS_MODEL_NAME}.yaml"
+    bag_partial = bag.with_name(bag.name + ".part")
+    bag_partial.write_text(DEMUCS_BAG, "utf-8")
+    os.replace(bag_partial, bag)
+    document = {
+        "schema": 1,
+        "repository": MODEL_REPOSITORY,
+        "revision": MODEL_REVISION,
         "files": hashes,
         "checksum": "sha256",
-    }, ensure_ascii=False, indent=2), "utf-8")
-    verify_model(model, model_root)
+    }
+    marker = marker_path(model_root)
+    marker_partial = marker.with_name(marker.name + ".part")
+    marker_partial.write_text(json.dumps(document, ensure_ascii=False, indent=2), "utf-8")
+    os.replace(marker_partial, marker)
+    verified = verify_bundle(model_root)
     if progress:
-        progress(1.0, f"{model} 下载并校验完成")
-    return target
+        progress(1.0, "分轨资源已准备完成")
+    return verified
 
 
-def cli(model: str) -> int:
-    parser = argparse.ArgumentParser(description=f"Download official Demucs model {model} without Hugging Face")
-    parser.add_argument("--output", type=Path, default=DEFAULT_MODEL_ROOT, help="model root directory")
-    parser.add_argument("--retries", type=int, default=5, choices=range(0, 11), help="retry count")
+def cli() -> int:
+    parser = argparse.ArgumentParser(description="Install BandBuddy's pinned separation bundle")
+    parser.add_argument("--output", type=Path, default=Path.cwd() / "models")
+    parser.add_argument("--retries", type=int, default=8, choices=range(0, 11))
     args = parser.parse_args()
     try:
-        target = download_model(
-            model,
+        target = install_bundle(
             args.output,
             retries=args.retries,
-            progress=lambda fraction, message: print(f"[{fraction * 100:6.2f}%] {message}", flush=True),
+            progress=lambda fraction, message: print(
+                f"[{fraction * 100:6.2f}%] {message}", flush=True
+            ),
         )
-        print(f"Model saved to: {target}")
+        print(f"Bundle saved to: {target}")
         return 0
     except KeyboardInterrupt:
-        print("Download cancelled; the .part file is kept for resuming.", file=sys.stderr)
+        print("Download cancelled; .part files are kept for resuming.", file=sys.stderr)
         return 130
     except Exception as error:
         print(f"Download failed: {error}", file=sys.stderr)
         return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(cli())

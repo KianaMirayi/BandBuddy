@@ -41,6 +41,7 @@ describe('library dialogs', () => {
 
     fireEvent.click(screen.getByText('选择音频或视频文件'))
     await waitFor(() => expect((screen.getByLabelText('歌曲标题') as HTMLInputElement).value).toBe('歌曲 B'))
+    expect(screen.queryByText(/导入已有分轨/)).toBeNull()
   })
 
   it('offers metadata editing from the song actions menu', () => {
@@ -108,6 +109,46 @@ describe('library dialogs', () => {
     await waitFor(() => expect(start).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'stems', applyPitchShift: true, pitchSemitones: 4
     })))
+  })
+
+  it('defaults stem export to the visible guitar mode and can include hidden alternatives', async () => {
+    const song = fixtureDetail(fixtureSongs[0]!)
+    vi.spyOn(window.bandbuddy.export, 'choosePath').mockResolvedValue('C:/Exports')
+    const start = vi.spyOn(window.bandbuddy.export, 'start')
+    render(<ExportDialog open onOpenChange={() => undefined} song={song} practice={song.practice} onBeforeStart={async () => undefined} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /分别导出音轨/ }))
+    expect(screen.getByText(/包含隐藏吉他备选轨/).textContent).toContain('Acoustic / Lead / Rhythm')
+    fireEvent.click(screen.getByRole('checkbox', { name: /包含隐藏吉他备选轨/ }))
+    fireEvent.click(screen.getByRole('button', { name: /选择位置并导出/ }))
+    await waitFor(() => expect(start).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'stems',
+      stemTypes: expect.arrayContaining(['guitar', 'acoustic_guitar', 'lead_guitar', 'rhythm_guitar'])
+    })))
+    expect(start.mock.calls[0]![0].stemTypes).toHaveLength(9)
+  })
+
+  it('saves the high-quality switch as a future-task setting', async () => {
+    const [settings, runtime] = await Promise.all([
+      window.bandbuddy.settings.get(),
+      window.bandbuddy.runtime.get()
+    ])
+    const update = vi.spyOn(window.bandbuddy.settings, 'update').mockImplementation(async (next) => next)
+    render(<SettingsDrawer
+      open
+      onOpenChange={() => undefined}
+      runtime={runtime}
+      settings={{ ...settings, highQualityStems: false }}
+      onSaved={() => undefined}
+      onRefresh={() => undefined}
+    />)
+
+    expect(screen.getByText('新分轨保存为 320 kbps MP3，节省空间')).toBeTruthy()
+    expect(screen.getByText('仅影响后续分轨；已有歌曲需重新分轨才会改变格式')).toBeTruthy()
+    fireEvent.click(screen.getByRole('checkbox', { name: '高音质分轨' }))
+    expect(screen.getByText('新分轨保存为 24-bit FLAC，占用空间较大')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
+    await waitFor(() => expect(update).toHaveBeenCalledWith(expect.objectContaining({ highQualityStems: true })))
   })
 
   it('enables debug mode immediately and reveals the debug log from settings', async () => {

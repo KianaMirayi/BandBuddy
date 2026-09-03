@@ -11,7 +11,7 @@ import { createDefaultPracticeState } from '@shared/domain.js'
 const songId = '00000000-0000-4000-8000-000000000000'
 
 describe('IPC schemas', () => {
-  it('accepts a complete six-track practice state and rejects duplicate tracks', () => {
+  it('accepts a complete nine-track practice state and rejects duplicate tracks', () => {
     const state = createDefaultPracticeState(songId)
     expect(practiceStateSchema.safeParse(state).success).toBe(true)
     state.tracks[5] = { ...state.tracks[0]! }

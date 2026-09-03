@@ -9,7 +9,8 @@ import {
   parseMusicalKey,
   recordingTrackOrderKey,
   stemTrackOrderKey,
-  transposeMusicalKey
+  transposeMusicalKey,
+  visibleStemTypes
 } from '@shared/domain.js'
 
 describe('track mix rules', () => {
@@ -25,6 +26,17 @@ describe('track mix rules', () => {
     expect(isTrackAudible(tracks[0]!, tracks)).toBe(true)
     expect(isTrackAudible(tracks[1]!, tracks)).toBe(false)
     expect(isTrackAudible(tracks[2]!, tracks)).toBe(false)
+  })
+
+  it('excludes hidden guitar alternatives from visibility and Solo decisions', () => {
+    const tracks = createDefaultPracticeState('00000000-0000-4000-8000-000000000000').tracks
+    tracks.find((track) => track.stemType === 'guitar')!.solo = true
+    expect(visibleStemTypes(false)).toEqual(['vocals', 'drums', 'bass', 'guitar', 'piano', 'other'])
+    expect(visibleStemTypes(true)).toEqual([
+      'vocals', 'drums', 'bass', 'acoustic_guitar', 'lead_guitar', 'rhythm_guitar', 'piano', 'other'
+    ])
+    expect(isTrackAudible(tracks.find((track) => track.stemType === 'guitar')!, tracks, true)).toBe(false)
+    expect(isTrackAudible(tracks.find((track) => track.stemType === 'vocals')!, tracks, true)).toBe(true)
   })
 
   it('converts dB to linear gain and treats the floor as silence', () => {
@@ -43,7 +55,12 @@ describe('track mix rules', () => {
 
     expect(order[0]).toBe(recordingTrackOrderKey(recordingId))
     expect(order[1]).toBe(stemTrackOrderKey('drums'))
-    expect(new Set(order).size).toBe(7)
+    expect(new Set(order).size).toBe(10)
+    expect(order.slice(order.indexOf(stemTrackOrderKey('guitar')) + 1, order.indexOf(stemTrackOrderKey('guitar')) + 4)).toEqual([
+      stemTrackOrderKey('acoustic_guitar'),
+      stemTrackOrderKey('lead_guitar'),
+      stemTrackOrderKey('rhythm_guitar')
+    ])
     expect(moveTrackOrder(order, stemTrackOrderKey('vocals'), recordingTrackOrderKey(recordingId), 'before')[0])
       .toBe(stemTrackOrderKey('vocals'))
   })
@@ -54,13 +71,14 @@ describe('track mix rules', () => {
       { stemType: 'drums', gainDb: 1, muted: false, solo: true, outputChannelPair: 5 }
     ])
 
-    expect(tracks).toHaveLength(6)
+    expect(tracks).toHaveLength(9)
     expect(tracks.find((track) => track.stemType === 'vocals')).toMatchObject({
       gainDb: -4,
       muted: true,
       outputChannelPair: 1
     })
     expect(tracks.find((track) => track.stemType === 'drums')?.outputChannelPair).toBe(5)
+    expect(tracks.find((track) => track.stemType === 'acoustic_guitar')).toMatchObject({ gainDb: 0, muted: false, solo: false })
   })
 
   it('normalizes compact key names and transposes them by semitone', () => {

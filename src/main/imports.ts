@@ -1,16 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream, existsSync, mkdirSync } from 'node:fs'
-import { copyFile, readFile, readdir, stat } from 'node:fs/promises'
+import { copyFile, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { dialog, shell } from 'electron'
-import type {
-  ImportResult,
-  ImportSourceOptions,
-  ImportStemsOptions,
-  SongDetail,
-  SourceChoice,
-  StemChoice,
-  StemType
+import {
+  GUITAR_SPLIT_STEMS,
+  normalizeSelectedStemForGuitarMode,
+  stemStorageFormat,
+  type ImportResult,
+  type ImportSourceOptions,
+  type SongDetail,
+  type SourceChoice
 } from '@shared/domain.js'
 import { parseLrc } from '@shared/lyrics.js'
 import { AUDIO_EXTENSIONS, SOURCE_AUDIO_EXTENSIONS, SOURCE_MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, isVideoSource } from '@shared/media-formats.js'
@@ -19,10 +19,6 @@ import type { Logger } from './logger.js'
 import type { MediaService } from './media.js'
 import type { AppPaths } from './paths.js'
 import type { RuntimeManager } from './runtime.js'
-import { inferStemType } from './stem-detection.js'
-
-export { inferStemType } from './stem-detection.js'
-
 export { AUDIO_EXTENSIONS, SOURCE_AUDIO_EXTENSIONS, SOURCE_MEDIA_EXTENSIONS, VIDEO_EXTENSIONS }
 const MAX_LRC_BYTES = 2 * 1024 * 1024
 
@@ -72,22 +68,6 @@ export class ImportService {
     const filePath = result.filePaths[0]
     if (result.canceled || !filePath) return null
     return { path: filePath, name: path.basename(filePath), inferredTitle: path.basename(filePath, path.extname(filePath)) }
-  }
-
-  async chooseStems(mode: 'files' | 'folder' = 'files'): Promise<StemChoice[]> {
-    const result = await dialog.showOpenDialog({
-      title: mode === 'folder' ? '选择分轨文件夹' : '选择分轨文件',
-      properties: mode === 'folder' ? ['openDirectory'] : ['openFile', 'multiSelections'],
-      ...(mode === 'files' ? { filters: [{ name: '音频文件', extensions: ['mp3', 'wav', 'flac', 'm4a', 'aac'] }] } : {})
-    })
-    if (result.canceled) return []
-    let files = result.filePaths
-    if (mode === 'folder' && files[0]) {
-      const entries = await readdir(files[0], { withFileTypes: true })
-      files = entries.filter((entry) => entry.isFile() && AUDIO_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
-        .map((entry) => path.join(files[0]!, entry.name))
-    }
-    return files.map((filePath) => ({ path: filePath, name: path.basename(filePath), inferredType: inferStemType(filePath) }))
   }
 
   async importLyrics(songId: string): Promise<SongDetail | null> {
@@ -175,73 +155,16 @@ export class ImportService {
     const jobId = this.database.createJob(
       'separate', songId, runtimeReady ? 'queued' : 'blockedRuntime',
       runtimeReady ? '等待分离' : '等待安装本地环境',
-      { sourceRelPath: this.paths.toLibraryRelative(settings.libraryRoot, copiedSource), segment: 7, retry: 0 }
+      {
+        sourceRelPath: this.paths.toLibraryRelative(settings.libraryRoot, copiedSource),
+        storageFormat: stemStorageFormat(settings.highQualityStems),
+        retry: 0
+      }
     )
     this.logger.info('source imported', { songId, extension, sourceHash })
     this.changed()
     this.kickJobs()
-    return { songId, jobId, duplicate: null, needsPadding: false, durationDifferenceMs: 0, warnings: [] }
-  }
-
-  async importStems(options: ImportStemsOptions): Promise<ImportResult> {
-    let files = options.files ?? []
-    if (!files.length && options.folderPath) {
-      const choices = await this.filesFromFolder(options.folderPath)
-      files = choices.filter((choice): choice is StemChoice & { inferredType: StemType } => Boolean(choice.inferredType))
-        .map((choice) => ({ path: choice.path, type: choice.inferredType }))
-    }
-    if (files.length < 2) throw new Error('AT_LEAST_TWO_STEMS_REQUIRED')
-    const unique = new Set(files.map((file) => file.type))
-    if (unique.size !== files.length) throw new Error('DUPLICATE_STEM_TYPE')
-    for (const file of files) await this.validateAudioFile(file.path)
-
-    const probes = await Promise.all(files.map(async (file) => ({ file, probe: await this.media.probe(file.path) })))
-    const durations = probes.map(({ probe }) => probe.durationMs).filter((duration) => duration > 0)
-    const difference = durations.length ? Math.max(...durations) - Math.min(...durations) : 0
-    const leadingSilences = await Promise.all(files.map((file) => this.media.leadingSilenceMs(file.path)))
-    const measuredSilences = leadingSilences.filter((value): value is number => value !== null)
-    const warnings: string[] = []
-    if (measuredSilences.length > 1 && Math.max(...measuredSilences) - Math.min(...measuredSilences) > 250) {
-      warnings.push('检测到音轨前导静音偏移；BandBuddy 不会自动移动或猜测性对齐音轨')
-    }
-    if (difference > 500 && !options.padMismatched) {
-      return { ...this.emptyResult(), needsPadding: true, durationDifferenceMs: difference, warnings: [...warnings, '各轨时长相差超过 500 ms，需要确认补静音'] }
-    }
-
-    const songId = randomUUID()
-    const settings = this.database.getSettings()
-    const songRoot = this.paths.songDirectory(settings.libraryRoot, songId)
-    const rawRoot = path.join(songRoot, 'source-stems')
-    mkdirSync(rawRoot, { recursive: true })
-    const payloadFiles: Array<{ type: StemType; relPath: string }> = []
-    for (const { file } of probes) {
-      const extension = path.extname(file.path).toLowerCase()
-      const destination = path.join(rawRoot, `${file.type}${extension}`)
-      await copyFile(file.path, destination)
-      payloadFiles.push({ type: file.type, relPath: this.paths.toLibraryRelative(settings.libraryRoot, destination) })
-    }
-    const commonRoot = options.folderPath ?? path.dirname(files[0]!.path)
-    this.database.createSong({
-      title: options.title?.trim() || path.basename(commonRoot),
-      artist: options.artist?.trim() || '',
-      sourceRelPath: null,
-      sourceHash: null,
-      sourceFormat: 'existing-stems',
-      durationMs: durations.length ? Math.max(...durations) : 0,
-      sampleRate: null,
-      channels: null,
-      artworkRelPath: null,
-      status: 'queued',
-      phase: '等待标准化分轨'
-    }, songId)
-    const jobId = this.database.createJob('normalizeStems', songId, 'queued', '等待标准化分轨', {
-      files: payloadFiles,
-      targetDurationMs: durations.length ? Math.max(...durations) : 0,
-      padMismatched: Boolean(options.padMismatched)
-    })
-    this.changed()
-    this.kickJobs()
-    return { songId, jobId, duplicate: null, needsPadding: false, durationDifferenceMs: difference, warnings }
+    return { songId, jobId, duplicate: null }
   }
 
   async deleteSong(songId: string, cancelSongJobs: (songId: string) => Promise<void>): Promise<void> {
@@ -266,7 +189,82 @@ export class ImportService {
     const phase = runtimeReady ? '等待重新分离' : '等待安装本地环境'
     const jobId = this.database.createJob('separate', songId, status, phase, {
       sourceRelPath: row.source_rel_path,
-      segment: 7,
+      storageFormat: stemStorageFormat(this.database.getSettings().highQualityStems),
+      retry: 0
+    })
+    this.database.setJobState(jobId, status, phase, 0)
+    this.changed()
+    this.kickJobs()
+    return jobId
+  }
+
+  requestGuitarSplit(songId: string): string | null {
+    const song = this.database.getSong(songId)
+    if (!song) throw new Error('SONG_NOT_FOUND')
+    const splitTypes = new Set(song.stems.map((stem) => stem.type))
+    if (GUITAR_SPLIT_STEMS.every((type) => splitTypes.has(type))) {
+      this.database.savePractice({
+        ...song.practice,
+        guitarSplitEnabled: true,
+        selectedStem: normalizeSelectedStemForGuitarMode(song.practice.selectedStem, true)
+      })
+      this.changed()
+      return null
+    }
+    const row = this.database.getSongRow(songId)
+    if (!row?.source_rel_path) throw new Error('ORIGINAL_SOURCE_NOT_AVAILABLE')
+    const existingGuitar = this.database.listJobs().find((job) =>
+      job.songId === songId
+      && job.type === 'guitarSplit'
+      && !['completed', 'cancelled', 'failed', 'interrupted'].includes(job.status)
+    )
+    if (existingGuitar) {
+      const full = this.database.getJob(existingGuitar.id)
+      this.database.updateJobPayload(existingGuitar.id, {
+        ...(typeof full?.payload === 'object' && full.payload ? full.payload : {}),
+        enableGuitarSplitOnSuccess: true
+      })
+      return existingGuitar.id
+    }
+    const existingBase = this.database.listJobs().find((job) =>
+      job.songId === songId
+      && job.type === 'separate'
+      && !['completed', 'cancelled', 'failed', 'interrupted'].includes(job.status)
+    )
+    if (existingBase) {
+      const full = this.database.getJob(existingBase.id)
+      this.database.updateJobPayload(existingBase.id, {
+        ...(typeof full?.payload === 'object' && full.payload ? full.payload : {}),
+        enableGuitarSplitOnSuccess: true
+      })
+      return existingBase.id
+    }
+    if (!row.active_separation_id) {
+      const runtimeReady = this.runtime.getInfo().status === 'ready'
+      const status = runtimeReady ? 'queued' : 'blockedRuntime'
+      const phase = runtimeReady ? '等待基础分轨' : '等待安装本地环境'
+      const jobId = this.database.createJob('separate', songId, status, phase, {
+        sourceRelPath: row.source_rel_path,
+        storageFormat: stemStorageFormat(this.database.getSettings().highQualityStems),
+        enableGuitarSplitOnSuccess: true,
+        retry: 0
+      })
+      this.database.setJobState(jobId, status, phase, 0)
+      this.changed()
+      this.kickJobs()
+      return jobId
+    }
+    const runtimeReady = this.runtime.getInfo().status === 'ready'
+    const status = runtimeReady ? 'queued' : 'blockedRuntime'
+    const phase = runtimeReady ? '等待吉他细分' : '等待安装本地环境'
+    const jobId = this.database.createJob('guitarSplit', songId, status, phase, {
+      sourceRelPath: row.source_rel_path,
+      storageFormat: stemStorageFormat(this.database.getSettings().highQualityStems),
+      baseSeparationId: row.active_separation_id,
+      expectedActiveSeparationId: row.active_separation_id,
+      baseEncodingGain: 1,
+      targetDurationMs: song.durationMs,
+      enableGuitarSplitOnSuccess: true,
       retry: 0
     })
     this.database.setJobState(jobId, status, phase, 0)
@@ -281,24 +279,15 @@ export class ImportService {
     if (existsSync(directory)) shell.showItemInFolder(directory)
   }
 
-  private async filesFromFolder(folder: string): Promise<StemChoice[]> {
-    const entries = await readdir(folder, { withFileTypes: true })
-    return entries.filter((entry) => entry.isFile() && AUDIO_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
-      .map((entry) => {
-        const filePath = path.join(folder, entry.name)
-        return { path: filePath, name: entry.name, inferredType: inferStemType(entry.name) }
-      })
-  }
-
-  private async validateAudioFile(filePath: string, extensions = AUDIO_EXTENSIONS): Promise<void> {
+  private async validateAudioFile(filePath: string, extensions: ReadonlySet<string>): Promise<void> {
     if (!extensions.has(path.extname(filePath).toLowerCase())) {
-      throw new Error(extensions === SOURCE_MEDIA_EXTENSIONS ? 'UNSUPPORTED_MEDIA_FORMAT' : 'UNSUPPORTED_AUDIO_FORMAT')
+      throw new Error('UNSUPPORTED_MEDIA_FORMAT')
     }
     const info = await stat(filePath)
     if (!info.isFile() || info.size === 0) throw new Error('EMPTY_AUDIO_FILE')
   }
 
   private emptyResult(): ImportResult {
-    return { songId: null, jobId: null, duplicate: null, needsPadding: false, durationDifferenceMs: 0, warnings: [] }
+    return { songId: null, jobId: null, duplicate: null }
   }
 }

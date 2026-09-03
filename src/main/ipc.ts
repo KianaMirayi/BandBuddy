@@ -9,7 +9,6 @@ import {
   desktopLyricsPayloadSchema,
   exportRequestSchema,
   importSourceSchema,
-  importStemsSchema,
   listSongsSchema,
   practiceStateSchema,
   rehearsalDuplicateSchema,
@@ -76,9 +75,7 @@ export function registerIpc(services: IpcServices): void {
   })
   handle(IPC.libraryGet, (_event, input) => services.database.getSong(uuidSchema.parse(input)))
   handle(IPC.libraryChooseSource, () => services.imports.chooseSource())
-  handle(IPC.libraryChooseStems, (_event, input) => services.imports.chooseStems(z.enum(['files', 'folder']).default('files').parse(input)))
   handle(IPC.libraryImportSource, (_event, input) => services.imports.importSource(importSourceSchema.parse(input)))
-  handle(IPC.libraryImportStems, (_event, input) => services.imports.importStems(importStemsSchema.parse(input)))
   handle(IPC.libraryImportLyrics, (_event, input) => services.imports.importLyrics(uuidSchema.parse(input)))
   handle(IPC.libraryUpdate, (_event, input) => {
     const parsed = updateSongSchema.parse(input)
@@ -93,6 +90,7 @@ export function registerIpc(services: IpcServices): void {
   })
   handle(IPC.libraryOpenLocation, (_event, input) => services.imports.openLocation(uuidSchema.parse(input)))
   handle(IPC.libraryReseparate, (_event, input) => services.imports.reSeparate(uuidSchema.parse(input)))
+  handle(IPC.libraryRequestGuitarSplit, (_event, input) => services.imports.requestGuitarSplit(uuidSchema.parse(input)))
   handle(IPC.practiceSave, (_event, input) => {
     services.database.savePractice(practiceStateSchema.parse(input))
     services.emitLibrary()

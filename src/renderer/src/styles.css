@@ -98,6 +98,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .primary-button.small { min-height: 38px; padding: 0 17px; }
 .outline-button { background: rgba(255,255,255,.34); border: 1px solid var(--border); color: #4e4841; box-shadow: none; }
 .outline-button:hover { background: rgba(255,255,255,.7); }
+.outline-button.active, .outline-button[aria-pressed="true"] { color: #48644e; border-color: rgba(72,100,78,.42); background: rgba(116,151,123,.18); }
 .outline-button.compact { min-height: 34px; padding: 0 14px; font-size: 12px; }
 .library-tools .primary-button { height: 52px; padding: 0 26px; min-width: 160px; }
 
@@ -105,18 +106,26 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .section-heading h2 { margin: 0; display: flex; gap: 10px; align-items: center; font-family: var(--serif); font-size: 23px; }
 .section-heading > span { display: flex; gap: 8px; }
 .section-heading > span button { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: transparent; border: 1px solid var(--border); color: #8b847b; }
-.recent-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
-.song-card { min-width: 0; height: 205px; padding: 15px; display: grid; grid-template-columns: 47% 1fr; align-items: center; gap: 12px; background: rgba(255,255,255,.57); border: 1px solid rgba(219,211,201,.77); border-radius: 15px; box-shadow: 0 8px 23px rgba(56,43,30,.08); overflow: hidden; }
+.recent-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.song-card { min-width: 0; height: 210px; padding: 15px; display: grid; grid-template-columns: minmax(118px, 142px) minmax(0, 1fr); align-items: center; gap: 14px; background: rgba(255,255,255,.57); border: 1px solid rgba(219,211,201,.77); border-radius: 15px; box-shadow: 0 8px 23px rgba(56,43,30,.08); overflow: hidden; }
 .song-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
-.song-card-info { min-width: 0; position: relative; align-self: stretch; padding-top: 14px; }
-.song-card-info h3 { margin: 0 25px 4px 0; line-height: 1.15; font-size: 16px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.song-card-info { min-width: 0; height: 100%; overflow: hidden; position: relative; align-self: stretch; padding: 10px 0 2px; display: flex; flex-direction: column; }
+.song-card-info h3 { margin: 0 25px 4px 0; line-height: 1.15; font-size: 16px; }
 .song-card-info > p { margin: 0; color: var(--muted); font-size: 12px; }
+.card-scroll-text { --card-scroll-distance: 0px; --card-scroll-duration: 2.8s; min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-scroll-text > span { max-width: 100%; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.card-scroll-text[data-overflow="true"]:hover > span { max-width: none; overflow: visible; text-overflow: clip; animation: card-text-scroll var(--card-scroll-duration) ease-in-out .3s infinite alternate; }
+@keyframes card-text-scroll { 0%, 12% { transform: translateX(0); } 88%, 100% { transform: translateX(calc(-1 * var(--card-scroll-distance))); } }
+@media (prefers-reduced-motion: reduce) {
+  .card-scroll-text[data-overflow="true"]:hover > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; animation: none; transform: none; }
+}
 .card-more { position: absolute; right: -3px; top: -4px; background: transparent; color: var(--muted); }
 .duration { margin: 10px 0; display: flex; align-items: center; gap: 5px; color: #8b847c; font-size: 11px; }
-.stem-pills { display: flex; gap: 4px; flex-wrap: wrap; }
+.stem-pills { max-height: 38px; overflow: hidden; display: flex; gap: 4px; flex-wrap: wrap; }
 .stem-pills i { background: color-mix(in srgb, var(--pill, #aaa) 18%, white); color: color-mix(in srgb, var(--pill, #777) 78%, #1a1713); border-radius: 5px; padding: 3px 5px; font-style: normal; font-size: 9px; }
-.continue-button { margin-top: 12px; min-height: 34px; padding: 0 13px; color: white; border-radius: 9px; background: #211d18; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
-.card-progress { margin-top: 16px; }
+.continue-button { flex: 0 0 34px; width: 100%; max-width: 160px; min-width: 0; margin-top: auto; padding: 0 8px; overflow: hidden; color: white; border-radius: 9px; background: #211d18; display: flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.continue-button svg { flex: 0 0 auto; }
+.card-progress { min-width: 0; margin-top: auto; }
 .card-progress b { display: flex; justify-content: space-between; font-size: 11px; font-weight: 500; }
 .card-progress em { font-style: normal; color: var(--muted); }
 .card-progress > span, .progress-line { height: 6px; display: block; margin: 8px 0; overflow: hidden; border-radius: 5px; background: #ddd8d0; }
@@ -149,7 +158,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .row-actions { justify-content: end; }
 .row-actions button { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: transparent; }
 .row-actions button:first-child { border: 1px solid var(--border); background: #faf8f4; color: var(--ink); }
-.song-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+.song-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
 .empty-library { min-height: 560px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .empty-library h2 { margin: 24px 0 8px; font-family: var(--serif); font-size: 30px; }
 .empty-library p { max-width: 520px; margin: 0 0 24px; color: var(--muted); line-height: 1.7; }
@@ -175,6 +184,19 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .practice-page { padding-top: 18px; padding-bottom: 138px; }
 .practice-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
 .practice-heading .outline-button { min-height: 37px; padding: 0 15px; font-size: 12px; }
+.guitar-split-control { position: relative; display: inline-flex; }
+.guitar-split-control > .outline-button:disabled { color: #8d857b; border-color: #d8d0c6; background: rgba(231,226,218,.72); opacity: .72; }
+.guitar-split-tooltip { position: absolute; z-index: 35; top: calc(100% + 8px); left: 0; width: max-content; max-width: 230px; padding: 8px 11px; color: #f8f4ed; border-radius: 7px; background: #3a342d; box-shadow: 0 8px 22px rgba(35,29,23,.2); font-size: 10px; line-height: 1.45; opacity: 0; visibility: hidden; transform: translateY(-3px); transition: opacity .14s ease, transform .14s ease, visibility .14s; pointer-events: none; }
+.guitar-split-tooltip::before { content: ""; position: absolute; left: 20px; top: -5px; width: 10px; height: 10px; background: #3a342d; transform: rotate(45deg); }
+.guitar-split-control:hover .guitar-split-tooltip, .guitar-split-control:focus-within .guitar-split-tooltip { opacity: 1; visibility: visible; transform: translateY(0); }
+.guitar-split-ready { position: absolute; z-index: 36; top: calc(100% + 10px); left: 0; width: 270px; min-height: 64px; display: flex; align-items: center; gap: 12px; padding: 11px 10px 11px 13px; color: #f7f4ed; border: 1px solid rgba(255,255,255,.13); border-radius: 10px; background: #405a48; box-shadow: 0 13px 30px rgba(42,55,44,.25); animation: guitar-split-ready-in .2s ease-out; }
+.guitar-split-ready::before { content: ""; position: absolute; left: 23px; top: -6px; width: 11px; height: 11px; border-left: 1px solid rgba(255,255,255,.13); border-top: 1px solid rgba(255,255,255,.13); background: #405a48; transform: rotate(45deg); }
+.guitar-split-ready > span { min-width: 0; display: grid; gap: 3px; }
+.guitar-split-ready b { font-size: 12px; }
+.guitar-split-ready small { color: rgba(247,244,237,.76); font-size: 9px; line-height: 1.45; }
+.guitar-split-ready > button { flex: 0 0 auto; width: 25px; height: 25px; display: grid; place-items: center; margin-left: auto; color: rgba(255,255,255,.8); border-radius: 50%; background: rgba(255,255,255,.1); }
+.guitar-split-ready > button:hover { background: rgba(255,255,255,.18); }
+@keyframes guitar-split-ready-in { from { opacity: 0; transform: translateY(-5px) scale(.98); } }
 .practice-key-badge { min-height: 37px; margin-left: auto; padding: 5px 11px; display: flex; align-items: center; gap: 8px; color: #6a5d4e; border: 1px solid #d6ccbf; border-radius: 20px; background: rgba(255,255,255,.42); }.practice-key-badge > svg { color: #987653; }.practice-key-badge span { display: grid; gap: 1px; }.practice-key-badge b { font-size: 10px; }.practice-key-badge small { color: var(--muted); font-size: 7px; }
 .back-button { height: 37px; padding: 0 14px; display: flex; gap: 7px; align-items: center; background: rgba(255,255,255,.28); border: 1px solid var(--border); border-radius: 20px; color: #6f675e; font-size: 12px; }
 .practice-heading h1 { font-size: 49px; }
@@ -587,7 +609,6 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 12px; heigh
   .page { padding-left: 34px; padding-right: 34px; }
   .library-hero { margin-left: 72px; }
   .search-box { width: 310px; }
-  .song-card { height: 190px; }
   .track-row { grid-template-columns: 24px 115px 70px 165px 82px minmax(220px, 1fr); }
   .recording-track { grid-template-columns: 24px 115px 64px 70px 165px minmax(220px, 1fr); }
   .waveform-navigator { margin-left: 516px; }

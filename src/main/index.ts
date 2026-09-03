@@ -6,9 +6,11 @@ import {
   Menu,
   nativeImage,
   protocol,
-  Tray
+  Tray,
+  type NativeImage
 } from 'electron'
 import { IPC } from '@shared/channels.js'
+import { APP_ICON_DATA_URL } from './app-icon.js'
 import { BandBuddyDatabase } from './database.js'
 import { ExportService } from './exporter.js'
 import { ImportService } from './imports.js'
@@ -50,13 +52,20 @@ let recording: RecordingService | null = null
 let rehearsalRecording: RehearsalRecordingService | null = null
 let desktopLyrics: DesktopLyricsWindow | null = null
 let quitAfterRecording = false
+let applicationIcon: NativeImage | null = null
+
+function getApplicationIcon(): NativeImage {
+  if (applicationIcon) return applicationIcon
+  applicationIcon = nativeImage.createFromDataURL(APP_ICON_DATA_URL)
+  if (applicationIcon.isEmpty()) throw new Error('EMBEDDED_APP_ICON_INVALID')
+  return applicationIcon
+}
 
 function emit(channel: string, payload?: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
 }
 
 function createWindow(paths: AppPaths): BrowserWindow {
-  const iconPath = app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(process.cwd(), 'build', 'icon.png')
   const window = new BrowserWindow({
     width: 1440,
     height: 960,
@@ -65,7 +74,7 @@ function createWindow(paths: AppPaths): BrowserWindow {
     show: false,
     frame: false,
     backgroundColor: '#F5F1EA',
-    icon: iconPath,
+    icon: getApplicationIcon(),
     webPreferences: {
       preload: join(currentDirectory, '../preload/index.cjs'),
       contextIsolation: true,
@@ -160,10 +169,7 @@ function createWindow(paths: AppPaths): BrowserWindow {
 
 function createTray(paths: AppPaths): void {
   if (tray) return
-  const iconPath = app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(process.cwd(), 'build', 'icon.png')
-  let icon = nativeImage.createFromPath(iconPath)
-  if (icon.isEmpty()) icon = nativeImage.createEmpty()
-  tray = new Tray(icon.resize({ width: 20, height: 20 }))
+  tray = new Tray(getApplicationIcon().resize({ width: 20, height: 20 }))
   tray.setToolTip('BandBuddy')
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '显示 BandBuddy', click: () => { if (!mainWindow) mainWindow = createWindow(paths); else mainWindow.show() } },
@@ -205,11 +211,12 @@ else {
     createTray(paths)
 
     const emitLibrary = (): void => emit(IPC.eventLibraryChanged)
+    const emitGuitarSplitCompleted = (songId: string): void => emit(IPC.eventGuitarSplitCompleted, songId)
     const emitTasks = (): void => emit(IPC.eventTasksChanged)
     const emitSettings = (): void => emit(IPC.eventSettingsChanged, database?.getSettings())
     const emitMedia = (): void => emit(IPC.eventMediaChanged, media.capabilities())
     const emitRehearsals = (): void => emit(IPC.eventRehearsalsChanged)
-    scheduler = new JobScheduler(paths, database, runtime, media, applicationLogger, emitTasks, emitLibrary)
+    scheduler = new JobScheduler(paths, database, runtime, media, applicationLogger, emitTasks, emitLibrary, emitGuitarSplitCompleted)
     const exporter = new ExportService(paths, database, media, applicationLogger, emitTasks, () => scheduler?.kick())
     scheduler.setExporter(exporter)
     const imports = new ImportService(paths, database, media, runtime, applicationLogger, () => { emitLibrary(); emitTasks() }, () => scheduler?.kick())

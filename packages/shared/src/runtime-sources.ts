@@ -4,21 +4,19 @@ export const RUNTIME_SOURCE_PRESETS = {
   china: {
     pythonInstallMirror: 'https://registry.npmmirror.com/-/binary/python-build-standalone/',
     pythonIndexUrl: 'https://mirrors.aliyun.com/pypi/simple',
-    pytorchIndexUrl: 'https://mirrors.aliyun.com/pytorch-wheels/{backend}/',
-    modelBaseUrl: 'https://modelscope.cn/models/pengzhendong/uvr-demucs/resolve/6938a11d024a7fffa0d9c09e79b1ba2cbcb13239/v3_v4_repo/'
+    pytorchIndexUrl: 'https://mirrors.aliyun.com/pytorch-wheels/{backend}/'
   },
   official: {
     pythonInstallMirror: '',
     pythonIndexUrl: 'https://pypi.org/simple',
-    pytorchIndexUrl: '',
-    modelBaseUrl: 'https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/'
+    pytorchIndexUrl: ''
   }
 } as const
 
 export type RuntimeSourcePreset = keyof typeof RUNTIME_SOURCE_PRESETS
 export type PytorchBackend = 'cpu' | 'cu126' | 'cu128' | 'cu129' | 'cu130'
 
-const SOURCE_KEYS = ['pythonInstallMirror', 'pythonIndexUrl', 'pytorchIndexUrl', 'modelBaseUrl'] as const
+const SOURCE_KEYS = ['pythonInstallMirror', 'pythonIndexUrl', 'pytorchIndexUrl'] as const
 
 export function applyRuntimeSourcePreset(network: NetworkSettings, preset: RuntimeSourcePreset): NetworkSettings {
   return { ...network, ...RUNTIME_SOURCE_PRESETS[preset] }

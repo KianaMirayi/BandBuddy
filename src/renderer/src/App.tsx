@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Library, Plus } from 'lucide-react'
 import {
+  GUITAR_SPLIT_STEMS,
   getStemTypeFromTrackOrderKey,
+  isStemVisible,
+  normalizeSelectedStemForGuitarMode,
   normalizeTrackOrder,
   type AppSettings,
   type DesktopLyricsPayload,
@@ -29,7 +32,9 @@ import { loadStartupAudioSettings } from './startup-audio-devices.js'
 import { clamp, isCancellationError, toUserErrorMessage } from './utils.js'
 import './playback-media.css'
 
-const fixtureMode = import.meta.env.DEV && new URLSearchParams(location.search).has('fixtures')
+const previewParams = new URLSearchParams(location.search)
+const fixtureMode = import.meta.env.DEV && previewParams.has('fixtures')
+const fixtureGuitarPreview = import.meta.env.DEV ? previewParams.get('guitarSplit') : null
 
 export default function App(): React.JSX.Element {
   const client = useQueryClient()
@@ -54,6 +59,9 @@ export default function App(): React.JSX.Element {
   const [songActionsOpen, setSongActionsOpen] = useState(false)
   const [actionSong, setActionSong] = useState<SongSummary | null>(null)
   const [toast, setToast] = useState('')
+  const [guitarSplitJob, setGuitarSplitJob] = useState<{ songId: string; jobId: string } | null>(null)
+  const [guitarSplitReadySongId, setGuitarSplitReadySongId] = useState<string | null>(null)
+  const [fixtureGuitarReadyDismissed, setFixtureGuitarReadyDismissed] = useState(false)
   const [countInRemaining, setCountInRemaining] = useState(0)
   const [availableOutputChannelPairs, setAvailableOutputChannelPairs] = useState(fixtureMode ? 6 : 1)
   const [recordingState, setRecordingState] = useState<RecordingState>({
@@ -65,6 +73,7 @@ export default function App(): React.JSX.Element {
     peak: [0, 0], rms: [0, 0], clipped: false, sourcePositionMs: 0, recording: false
   })
   const recordingWasActive = useRef(false)
+  const viewRef = useRef(view)
 
   const song = usePlayerStore((state) => state.song)
   const practice = usePlayerStore((state) => state.practice)
@@ -82,6 +91,8 @@ export default function App(): React.JSX.Element {
   const desktopLyricsVisible = view === 'practice'
     && Boolean(song?.lyrics?.cues.length && practice?.desktopLyricsEnabled)
   const lastDesktopLyricsUpdate = useRef({ at: 0, signature: '' })
+
+  useEffect(() => { viewRef.current = view }, [view])
 
   const songsQuery = useQuery({
     queryKey: ['songs', query, filter, fixtureMode],
@@ -126,6 +137,42 @@ export default function App(): React.JSX.Element {
     ]
     return () => unsubscribe.forEach((stop) => stop())
   }, [client])
+
+  useEffect(() => {
+    let subscribed = true
+    const unsubscribe = window.bandbuddy.library.onGuitarSplitCompleted((songId) => {
+      void (async () => {
+        void client.invalidateQueries({ queryKey: ['songs'] })
+        void client.invalidateQueries({ queryKey: ['tasks'] })
+        const current = usePlayerStore.getState()
+        if (current.song?.id !== songId) return
+        const updated = await window.bandbuddy.library.get(songId)
+        if (!updated || !subscribed) return
+        await engine.current.updateStemSources(updated)
+        if (!subscribed) return
+        const latest = usePlayerStore.getState()
+        if (latest.song?.id !== songId) return
+        updateSongDetails(updated)
+        if (updated.practice.guitarSplitEnabled && latest.practice && !latest.practice.guitarSplitEnabled) {
+          patchPractice({
+            guitarSplitEnabled: true,
+            selectedStem: normalizeSelectedStemForGuitarMode(latest.selectedStem, true) ?? 'acoustic_guitar'
+          })
+        }
+        setGuitarSplitJob((active) => active?.songId === songId ? null : active)
+        if (viewRef.current === 'practice') setGuitarSplitReadySongId(songId)
+      })().catch(() => {
+        if (subscribed) setToast('吉他分轨已完成，但刷新音轨失败；重新进入练习室即可加载')
+      })
+    })
+    return () => { subscribed = false; unsubscribe() }
+  }, [client, patchPractice, updateSongDetails])
+
+  useEffect(() => {
+    if (!guitarSplitReadySongId) return
+    const timer = window.setTimeout(() => setGuitarSplitReadySongId(null), 7_000)
+    return () => window.clearTimeout(timer)
+  }, [guitarSplitReadySongId])
 
   useEffect(() => {
     engine.current.onTime(setCurrentMs)
@@ -308,12 +355,16 @@ export default function App(): React.JSX.Element {
     if (next.loopEnabled) void playFrom(next.loopStartMs!)
   }
 
-  const replaceCurrentSong = async (updated: SongDetail): Promise<void> => {
+  const replaceCurrentSong = async (updated: SongDetail, preserveLocalPractice = true): Promise<void> => {
     const wasPlaying = playing
     engine.current.pause()
-    loadSong({ ...updated, practice: practice ?? updated.practice })
+    const nextSong = {
+      ...updated,
+      practice: preserveLocalPractice ? practice ?? updated.practice : updated.practice
+    }
+    loadSong(nextSong)
     try {
-      await engine.current.load({ ...updated, practice: practice ?? updated.practice }, settingsQuery.data?.audioOutputDeviceId, settingsQuery.data?.latencyMode)
+      await engine.current.load(nextSong, settingsQuery.data?.audioOutputDeviceId, settingsQuery.data?.latencyMode)
       setAvailableOutputChannelPairs(fixtureMode ? 6 : engine.current.availableOutputChannelPairs)
     } catch {
       setToast('无法加载音频，请检查音频文件或输出设备')
@@ -416,6 +467,57 @@ export default function App(): React.JSX.Element {
     }
   }
 
+  const setGuitarSplitMode = async (enabled: boolean): Promise<void> => {
+    const state = usePlayerStore.getState()
+    if (!state.song || !state.practice) return
+    const nextSelected = normalizeSelectedStemForGuitarMode(state.selectedStem, enabled) ?? 'vocals'
+    if (!enabled || GUITAR_SPLIT_STEMS.every((type) => state.song!.stems.some((stem) => stem.type === type))) {
+      patchPractice({ guitarSplitEnabled: enabled, selectedStem: nextSelected })
+      setSelectedStem(nextSelected)
+      return
+    }
+    if (!state.song.sourceFormat) {
+      setToast('这首歌没有原始音频，无法生成吉他细分轨；现有音轨仍可继续播放和导出')
+      return
+    }
+    if (!window.confirm('这首歌需要重新分轨才能生成木吉他、Lead 和 Rhythm。完成前会继续使用当前分轨，是否继续？')) return
+    try {
+      await saveNow()
+      if (fixtureMode) {
+        patchPractice({ guitarSplitEnabled: true, selectedStem: nextSelected })
+        setSelectedStem(nextSelected)
+        return
+      }
+      const jobId = await window.bandbuddy.library.requestGuitarSplit(state.song.id)
+      if (!jobId) {
+        const updated = await window.bandbuddy.library.get(state.song.id)
+        if (updated) await replaceCurrentSong(updated, false)
+        return
+      }
+      setGuitarSplitJob({ songId: state.song.id, jobId })
+      updateSongDetails({ ...state.song, guitarSplitStatus: 'pending' })
+      setTasksOpen(true)
+      if (runtimeQuery.data?.status !== 'ready') setSettingsOpen(true)
+      setToast('正在生成吉他细分轨；完成后会自动通知')
+    } catch (error) {
+      setToast(toUserErrorMessage(error, '无法开始吉他分轨，请重试'))
+    }
+  }
+
+  useEffect(() => {
+    if (!guitarSplitJob) return
+    const job = tasksQuery.data?.find((candidate) => candidate.id === guitarSplitJob.jobId)
+    if (!job) return
+    if (job.status === 'completed') {
+      setGuitarSplitJob(null)
+    } else if (['failed', 'cancelled', 'interrupted'].includes(job.status)) {
+      setGuitarSplitJob(null)
+      const current = usePlayerStore.getState().song
+      if (current?.id === guitarSplitJob.songId) updateSongDetails({ ...current, guitarSplitStatus: 'failed' })
+      setToast(job.status === 'cancelled' ? '吉他分轨已取消，继续使用原吉他轨' : '吉他分轨未完成，已保留原吉他轨')
+    }
+  }, [guitarSplitJob, tasksQuery.data, updateSongDetails])
+
   const editSongMetadata = async (): Promise<void> => {
     const selected = actionSong
     if (!selected) return
@@ -437,6 +539,15 @@ export default function App(): React.JSX.Element {
   const runtime = runtimeQuery.data
   const settings = settingsQuery.data
   const songs = songsQuery.data ?? []
+  const currentGuitarSplitTask = song
+    ? tasks.find((job) => job.songId === song.id && job.type === 'guitarSplit')
+    : undefined
+  const guitarSplitPending = Boolean(song && song.guitarSplitStatus !== 'ready' && (
+    guitarSplitJob?.songId === song.id
+    || (currentGuitarSplitTask
+      ? !['completed', 'cancelled', 'failed', 'interrupted'].includes(currentGuitarSplitTask.status)
+      : song.guitarSplitStatus === 'pending')
+  ))
   const rehearsalInitialId = activeRehearsalId ?? rehearsalReturn?.rehearsalId ?? null
   const restoreRehearsalContext = Boolean(
     rehearsalReturn && rehearsalReturn.rehearsalId === rehearsalInitialId
@@ -502,8 +613,11 @@ export default function App(): React.JSX.Element {
       outputLatencyMs={engine.current.outputLatencySeconds * 1000}
       onTogglePlayback={() => void togglePlayback()} onRestart={restartPlayback} onCycleLoop={cycleLoop}
       recordingState={recordingState} recordingMeter={recordingMeter} locked={recordingLocked}
+      guitarSplitPending={fixtureGuitarPreview === 'pending' || guitarSplitPending}
+      guitarSplitReady={(fixtureGuitarPreview === 'ready' && !fixtureGuitarReadyDismissed) || guitarSplitReadySongId === song.id}
+      onDismissGuitarSplitReady={() => { setFixtureGuitarReadyDismissed(true); setGuitarSplitReadySongId(null) }}
       backLabel={rehearsalReturn ? '返回排练房' : '返回曲库'}
-      onBack={() => void returnFromPractice()} onSeek={seek} onPatch={patchPractice} onTrack={patchTrack}
+      onBack={() => void returnFromPractice()} onSeek={seek} onPatch={patchPractice} onGuitarSplit={(enabled) => void setGuitarSplitMode(enabled)} onTrack={patchTrack}
       onSelected={setSelectedStem} onExport={() => setExportOpen(true)} onAddRecordingTrack={() => void createRecordingTrack()} onEdit={() => { setMetadataSong(song); setMetadataOpen(true) }}
       onMore={() => { setActionSong(song); setSongActionsOpen(true) }}
       onRecord={(recordingTrackId) => void startRecording(recordingTrackId)} onStopRecording={() => void stopRecording()} onCancelRecording={() => void cancelRecording()}
@@ -517,7 +631,7 @@ export default function App(): React.JSX.Element {
       setView('practice')
     }} />}
 
-    <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImported={(songId, warnings) => { setTasksOpen(true); void client.invalidateQueries({ queryKey: ['songs'] }); setToast(warnings[0] ?? `歌曲已加入曲库 · ${songId.slice(0, 8)}`) }} onOpenDuplicate={(songId) => void openSong(songId)} onNeedsRuntime={() => { if (runtime?.status !== 'ready') setSettingsOpen(true) }} />
+    <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImported={(songId) => { setTasksOpen(true); void client.invalidateQueries({ queryKey: ['songs'] }); setToast(`歌曲已加入曲库 · ${songId.slice(0, 8)}`) }} onOpenDuplicate={(songId) => void openSong(songId)} onNeedsRuntime={() => { if (runtime?.status !== 'ready') setSettingsOpen(true) }} />
     <TasksDrawer open={tasksOpen} onOpenChange={setTasksOpen} jobs={tasks} onRefresh={() => void tasksQuery.refetch()} />
     {runtime && settings && <SettingsDrawer open={settingsOpen} onOpenChange={setSettingsOpen} runtime={runtime} settings={settings} onSaved={(saved: AppSettings) => {
       client.setQueryData(['settings'], saved)
@@ -566,7 +680,7 @@ function useKeyboardShortcuts({
       const selected = practice.tracks.find((track) => track.stemType === selectedStem)
       const stemOrder = normalizeTrackOrder(practice.trackOrder, song.recordingTracks.map((track) => track.id))
         .map(getStemTypeFromTrackOrderKey)
-        .filter((stemType): stemType is StemType => stemType !== null)
+        .filter((stemType): stemType is StemType => stemType !== null && isStemVisible(stemType, practice.guitarSplitEnabled))
       const index = stemOrder.indexOf(selectedStem)
       if (event.code === 'Space') { event.preventDefault(); void togglePlayback() }
       else if (event.key === 'Home') { event.preventDefault(); restartPlayback() }

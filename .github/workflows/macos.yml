@@ -15,16 +15,8 @@ concurrency:
 
 jobs:
   test-and-package:
-    name: macOS ${{ matrix.arch }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            runner: macos-15-intel
-          - arch: arm64
-            runner: macos-15
-    runs-on: ${{ matrix.runner }}
+    name: macOS Apple Silicon
+    runs-on: macos-15
     timeout-minutes: 90
 
     steps:
@@ -33,7 +25,7 @@ jobs:
 
       - name: Verify native runner architecture
         shell: bash
-        run: test "$(uname -m)" = "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
+        run: test "$(uname -m)" = "arm64"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -55,12 +47,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install HQ6 test dependencies
+        run: python -m pip install --disable-pip-version-check -r python/guitar_separator_hq/requirements-test.txt
+
       - name: Fetch verified native desktop tools
         run: pnpm tools:fetch
 
       - name: Validate and test
         run: |
-          python -m py_compile python/worker/worker.py
+          python -m compileall -q python/worker python/guitar_separator_hq
+          pnpm test:model-bundle
+          pnpm test:guitar-hq
           pnpm test
 
       - name: Package unsigned macOS builds
@@ -77,28 +74,29 @@ jobs:
           test -x "$app_path/Contents/Resources/bin/uv"
           test -x "$app_path/Contents/Resources/bin/ffmpeg"
           test -x "$app_path/Contents/Resources/bin/ffprobe"
-          test -x "$app_path/Contents/Resources/audio-host/${{ matrix.arch == 'x64' && 'darwin-x64' || 'darwin-arm64' }}/bandbuddy-audio-host"
-          file "$app_path/Contents/MacOS/BandBuddy" | grep -q "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
+          test -x "$app_path/Contents/Resources/audio-host/darwin-arm64/bandbuddy-audio-host"
+          test -f "$app_path/Contents/Resources/worker/guitar_separator_hq/separator.py"
+          file "$app_path/Contents/MacOS/BandBuddy" | grep -q "arm64"
           "$app_path/Contents/Resources/bin/uv" --version
           "$app_path/Contents/Resources/bin/ffmpeg" -version
           "$app_path/Contents/Resources/bin/ffprobe" -version
-          "$app_path/Contents/Resources/audio-host/${{ matrix.arch == 'x64' && 'darwin-x64' || 'darwin-arm64' }}/bandbuddy-audio-host" --self-test
+          "$app_path/Contents/Resources/audio-host/darwin-arm64/bandbuddy-audio-host" --self-test
 
       - name: Generate checksums
         shell: bash
         run: |
           shopt -s nullglob
-          files=(release-macos/BandBuddy-*-macos-${{ matrix.arch }}.dmg release-macos/BandBuddy-*-macos-${{ matrix.arch }}.zip)
+          files=(release-macos/BandBuddy-*-macos-arm64.dmg release-macos/BandBuddy-*-macos-arm64.zip)
           test "${#files[@]}" -eq 2
-          shasum -a 256 "${files[@]}" | sed 's#release-macos/##' > "release-macos/SHA256SUMS-macos-${{ matrix.arch }}.txt"
+          shasum -a 256 "${files[@]}" | sed 's#release-macos/##' > "release-macos/SHA256SUMS-macos-arm64.txt"
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: BandBuddy-macos-${{ matrix.arch }}-${{ github.sha }}
+          name: BandBuddy-macos-arm64-${{ github.sha }}
           path: |
-            release-macos/BandBuddy-*-macos-${{ matrix.arch }}.dmg
-            release-macos/BandBuddy-*-macos-${{ matrix.arch }}.zip
-            release-macos/SHA256SUMS-macos-${{ matrix.arch }}.txt
+            release-macos/BandBuddy-*-macos-arm64.dmg
+            release-macos/BandBuddy-*-macos-arm64.zip
+            release-macos/SHA256SUMS-macos-arm64.txt
           if-no-files-found: error
           retention-days: 14

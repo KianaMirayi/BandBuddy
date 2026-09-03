@@ -31,7 +31,7 @@ export const RUNTIME_VERSIONS = {
   uv: UV_SOURCE.version,
   python: '3.12',
   ...PYTHON_RUNTIME_VERSIONS,
-  modelRevision: 'htdemucs_6s:5c90dfd2-34c22ccb'
+  modelRevision: 'bandbuddy-stems:v2.0.0'
 } as const
 
 const UV_ARCHIVE_SHA256 = UV_SOURCE.sha256
@@ -92,9 +92,7 @@ export class RuntimeManager {
       pythonVersion: null,
       torchVersion: null,
       cudaVersion: null,
-      demucsVersion: null,
       modelReady: false,
-      modelRevision: RUNTIME_VERSIONS.modelRevision,
       runtimePath: settings.runtimeRoot,
       modelPath: settings.modelRoot,
       error: null
@@ -229,7 +227,7 @@ export class RuntimeManager {
       })
       this.update({
         status: data.modelReady ? 'ready' : 'missing',
-        stage: data.modelReady ? `环境就绪 · ${selectedDevice.toUpperCase()}` : '运行环境已安装，模型尚未就绪',
+        stage: data.modelReady ? `环境就绪 · ${selectedDevice.toUpperCase()}` : '运行环境已安装，分轨资源尚未就绪',
         progress: data.modelReady ? 1 : null,
         gpu,
         selectedDevice,
@@ -237,7 +235,6 @@ export class RuntimeManager {
         pythonVersion: String(data.pythonVersion ?? ''),
         torchVersion: String(data.torchVersion ?? ''),
         cudaVersion: data.cudaVersion ? String(data.cudaVersion) : null,
-        demucsVersion: String(data.demucsVersion ?? ''),
         modelReady: Boolean(data.modelReady),
         error: null
       })
@@ -298,11 +295,10 @@ export class RuntimeManager {
         installArgs.push('--torch-backend', backend)
       }
       installArgs.push(...PYTHON_RUNTIME_REQUIREMENTS)
-      await run(installArgs, '安装 PyTorch 与 Demucs（下载可续传）', 0.32)
+      await run(installArgs, '安装本地分轨组件（下载可续传）', 0.32)
 
-      this.update({ status: 'downloadingModel', stage: '下载并校验分轨模型', progress: 0.78 })
+      this.update({ status: 'downloadingModel', stage: '下载并校验分轨资源', progress: 0.78 })
       const modelArgs = ['ensure-model', '--model-root', settings.modelRoot]
-      if (settings.network.modelBaseUrl) modelArgs.push('--model-base-url', settings.network.modelBaseUrl)
       const model = await this.runWorker(modelArgs, controller.signal, 0, (message) => {
         if (typeof message.progress === 'number') this.update({ progress: 0.78 + message.progress * 0.14 })
         if (message.message) this.update({ stage: message.message })
@@ -350,7 +346,6 @@ export class RuntimeManager {
       pythonVersion: String(data.pythonVersion ?? ''),
       torchVersion: String(data.torchVersion ?? ''),
       cudaVersion: data.cudaVersion ? String(data.cudaVersion) : null,
-      demucsVersion: String(data.demucsVersion ?? ''),
       modelReady: Boolean(data.modelReady)
     }
   }
@@ -382,7 +377,7 @@ export class RuntimeManager {
     if (includeModels) await this.clearModelCache()
     this.update({
       status: 'missing', stage: '运行环境已卸载', progress: null, pythonVersion: null, torchVersion: null,
-      cudaVersion: null, demucsVersion: null, modelReady: false, error: null
+      cudaVersion: null, modelReady: false, error: null
     })
   }
 
@@ -394,7 +389,7 @@ export class RuntimeManager {
     if (!this.usesUnifiedStorage(settings) && !legacyManagedPath) throw new Error('UNSAFE_MODEL_PATH')
     await rm(root, { recursive: true, force: true })
     mkdirSync(root, { recursive: true })
-    this.update({ status: 'missing', stage: '模型缓存已清理', progress: null, modelReady: false })
+    this.update({ status: 'missing', stage: '分轨资源缓存已清理', progress: null, modelReady: false })
   }
 
   private usesUnifiedStorage(settings: { libraryRoot: string; runtimeRoot: string; modelRoot: string }): boolean {

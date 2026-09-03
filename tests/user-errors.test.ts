@@ -13,7 +13,7 @@ describe('user-facing error messages', () => {
 
   it('maps other actionable codes without exposing diagnostics', () => {
     expect(toUserErrorMessage('Error: MICROPHONE_PERMISSION_DENIED')).toBe('麦克风权限未开启，请在系统设置中允许访问')
-    expect(toUserErrorMessage('Error: CUDA_OOM_CPU_RETRY_AVAILABLE')).toBe('显存不足，可使用 CPU 重试')
+    expect(toUserErrorMessage('Error: CUDA_OOM_CPU_RETRY_AVAILABLE')).toBe('加速设备内存不足，已尝试使用 CPU')
     expect(toUserErrorMessage('Error: WINDOWS_NATIVE_RUNTIME_FAILED')).toBe('Windows C++ 运行库异常，请安装或修复最新版 Microsoft Visual C++ x64 运行库')
     expect(toUserErrorMessage('Error: VC_RUNTIME_ELEVATION_CANCELLED')).toBe('已取消 Windows 系统运行库安装，请重新安装并确认系统授权')
     expect(toUserErrorMessage('Error: UNKNOWN_BACKEND_FAILURE:C:\\private\\debug.log', '录音失败，请重试')).toBe('录音失败，请重试')

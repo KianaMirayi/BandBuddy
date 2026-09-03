@@ -16,6 +16,28 @@ import { STEM_META, STEM_ORDER, type SongSummary } from '@shared/domain.js'
 import { formatDate, formatTime, statusLabel } from '../utils.js'
 import { Vinyl } from '../components/Vinyl.js'
 
+const CARD_TEXT_SCROLL_SPEED = 32
+const CARD_TEXT_SCROLL_HOLD_SECONDS = 1.6
+
+function prepareCardTextScroll(event: React.MouseEvent<HTMLElement>): void {
+  const container = event.currentTarget
+  const content = container.firstElementChild
+  if (!(content instanceof HTMLElement)) return
+
+  const distance = Math.ceil(content.scrollWidth - container.clientWidth)
+  if (distance <= 1) {
+    container.dataset.overflow = 'false'
+    container.style.removeProperty('--card-scroll-distance')
+    container.style.removeProperty('--card-scroll-duration')
+    return
+  }
+
+  const duration = Math.min(14, Math.max(2.8, distance / CARD_TEXT_SCROLL_SPEED + CARD_TEXT_SCROLL_HOLD_SECONDS))
+  container.dataset.overflow = 'true'
+  container.style.setProperty('--card-scroll-distance', `${distance}px`)
+  container.style.setProperty('--card-scroll-duration', `${duration.toFixed(2)}s`)
+}
+
 export function LibraryPage({
   songs,
   loading,
@@ -45,7 +67,7 @@ export function LibraryPage({
   onFavorite(song: SongSummary): void
   onMenu(song: SongSummary): void
 }): React.JSX.Element {
-  const recent = songs.slice(0, 4)
+  const recent = songs.slice(0, 3)
   return <main className="page library-page">
     <div className="library-decoration" aria-hidden><div className="record-lines" /><span>♩</span></div>
     <section className="library-hero">
@@ -81,15 +103,19 @@ export function LibraryPage({
 
 function SongCard({ song, onOpen, onPlay, onMenu }: { song: SongSummary; onOpen(): void; onPlay(): void; onMenu(): void }): React.JSX.Element {
   const processing = song.status === 'processing' || song.status === 'queued' || song.status === 'blockedRuntime'
+  const artist = song.artist || '未知艺术家'
+  const phase = song.phase ?? '任务排队中'
   return <article className="song-card" onDoubleClick={onOpen}>
     <Vinyl artworkUrl={song.artworkUrl} size="medium" spinning={song.status === 'processing'} showFallbackText={false} />
     <div className="song-card-info">
       <button className="card-more" aria-label="歌曲菜单" onClick={(event) => { event.stopPropagation(); onMenu() }}><MoreHorizontal size={20} /></button>
-      <h3 title={song.title}>{song.title}</h3><p>{song.artist || '未知艺术家'}</p>
+      <h3 className="card-scroll-text" title={song.title} onMouseEnter={prepareCardTextScroll}><span>{song.title}</span></h3>
+      <p className="card-scroll-text" title={artist} onMouseEnter={prepareCardTextScroll}><span>{artist}</span></p>
       <span className="duration"><Clock3 size={14} />{formatTime(song.durationMs)}</span>
       {processing ? <div className="card-progress">
         <b>{statusLabel(song.status)} <em>{Math.round(song.progress * 100)}%</em></b>
-        <span><i style={{ width: `${song.progress * 100}%` }} /></span><small>{song.phase ?? '任务排队中'}</small>
+        <span><i style={{ width: `${song.progress * 100}%` }} /></span>
+        <small className="card-scroll-text" title={phase} onMouseEnter={prepareCardTextScroll}><span>{phase}</span></small>
       </div> : <>
         <div className="stem-pills">{song.stemTypes.slice(0, 4).map((stem) => <i key={stem} style={{ '--pill': STEM_META[stem].color } as React.CSSProperties}>{STEM_META[stem].shortLabel}</i>)}</div>
         <button className="continue-button" onClick={onPlay}><Play size={15} fill="currentColor" />继续练习</button>
@@ -115,9 +141,9 @@ function SongTable({ songs, onOpen, onPlay, onFavorite, onMenu }: { songs: SongS
 function EmptyLibrary({ onImport }: { onImport(): void }): React.JSX.Element {
   return <section className="empty-library">
     <div className="empty-record"><Vinyl size="large" showFallbackText={false} /><span><Music2 size={28} /></span></div>
-    <h2>把第一首歌放进曲库</h2><p>导入歌曲后会在本机分离出 Vocal、Drums、Bass、Guitar、Piano 和 Other 六条音轨。</p>
+    <h2>把第一首歌放进曲库</h2><p>导入歌曲后会一次生成基础六轨，以及木吉他、Lead 和 Rhythm 三条吉他细分轨。</p>
     <button className="primary-button" onClick={onImport}><Plus size={19} />导入歌曲</button>
-    <small>所有音乐和模型都保存在你的电脑上</small>
+    <small>所有音乐和分轨资源都保存在你的电脑上</small>
   </section>
 }
 

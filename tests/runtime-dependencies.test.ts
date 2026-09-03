@@ -18,14 +18,22 @@ describe('managed Python runtime dependencies', () => {
       'torch==2.11.0',
       'torchaudio==2.11.0',
       'demucs==4.1.0',
-      'soundfile>=0.13,<1'
+      'numpy==2.5.2',
+      'scipy==1.17.0',
+      'soundfile==0.14.0',
+      'librosa==1.0.0',
+      'PyYAML==6.0.3',
+      'einops==0.8.1',
+      'beartype==0.18.5',
+      'rotary-embedding-torch==0.3.5',
+      'packaging==26.2'
     ])
   })
 
-  it('selects matching native macOS wheel pairs', () => {
+  it('keeps the supported Apple Silicon runtime on the same fixed pair', () => {
     const intel = pythonRuntimeVersions('darwin', 'x64')
     const appleSilicon = pythonRuntimeVersions('darwin', 'arm64')
-    expect(pythonRuntimeRequirements(intel).slice(0, 2)).toEqual(['torch==2.2.2', 'torchaudio==2.2.2'])
+    expect(pythonRuntimeRequirements(intel).slice(0, 2)).toEqual(['torch==2.11.0', 'torchaudio==2.11.0'])
     expect(pythonRuntimeRequirements(appleSilicon).slice(0, 2)).toEqual(['torch==2.11.0', 'torchaudio==2.11.0'])
   })
 

@@ -12,6 +12,7 @@ export function installFixtureBridge(): void {
     runtimeRoot: 'C:\\Users\\Musician\\BandBuddy\\envs',
     modelRoot: 'C:\\Users\\Musician\\BandBuddy\\envs\\models',
     debugMode: false,
+    highQualityStems: false,
     preferredDevice: 'auto' as const,
     audioOutputDeviceId: '', latencyMode: 'balanced' as const, recordingAudio: createDefaultRecordingAudioSettings(), keepSource: true, closeToTrayWhileWorking: true,
     network: {
@@ -19,15 +20,14 @@ export function installFixtureBridge(): void {
       proxyUrl: '',
       pythonInstallMirror: 'https://registry.npmmirror.com/-/binary/python-build-standalone/',
       pythonIndexUrl: 'https://mirrors.aliyun.com/pypi/simple',
-      pytorchIndexUrl: 'https://mirrors.aliyun.com/pytorch-wheels/{backend}/',
-      modelBaseUrl: 'https://modelscope.cn/models/pengzhendong/uvr-demucs/resolve/6938a11d024a7fffa0d9c09e79b1ba2cbcb13239/v3_v4_repo/'
+      pytorchIndexUrl: 'https://mirrors.aliyun.com/pytorch-wheels/{backend}/'
     }
   }
   const runtime = {
     status: 'ready' as const, stage: '环境就绪 · CUDA', progress: 1, device: 'auto' as const, selectedDevice: 'cuda' as const,
     gpu: { name: 'NVIDIA GeForce RTX 4070', driverVersion: '590.18', memoryMb: 12282 },
-    windowsVcRuntimeVersion: '14.50.35719.0', pythonVersion: '3.12.10', torchVersion: '2.11.0+cu130', cudaVersion: '13.0', demucsVersion: '4.1.0', modelReady: true,
-    modelRevision: 'htdemucs_6s:5c90dfd2-34c22ccb', runtimePath: settings.runtimeRoot, modelPath: settings.modelRoot, error: null
+    windowsVcRuntimeVersion: '14.50.35719.0', pythonVersion: '3.12.10', torchVersion: '2.11.0+cu130', cudaVersion: '13.0', modelReady: true,
+    runtimePath: settings.runtimeRoot, modelPath: settings.modelRoot, error: null
   }
   let rehearsal = structuredClone(fixtureRehearsal)
   const rehearsalIdle = (): RehearsalRecordingState => ({
@@ -40,12 +40,13 @@ export function installFixtureBridge(): void {
     library: {
       list: async () => fixtureSongs,
       get: async (id) => { const song = fixtureSongs.find((item) => item.id === id); return song ? fixtureDetail(song) : null },
-      chooseSource: async () => null, chooseStems: async () => [],
-      importSource: async () => ({ songId: null, jobId: null, duplicate: null, needsPadding: false, durationDifferenceMs: 0, warnings: [] }),
-      importStems: async () => ({ songId: null, jobId: null, duplicate: null, needsPadding: false, durationDifferenceMs: 0, warnings: [] }),
+      chooseSource: async () => null,
+      importSource: async () => ({ songId: null, jobId: null, duplicate: null }),
+      requestGuitarSplit: async () => null,
       importLyrics: async (id) => { const song = fixtureSongs.find((item) => item.id === id); return song ? fixtureDetail(song) : null },
       update: async ({ id, patch }) => { const found = fixtureSongs.find((item) => item.id === id)!; return { ...fixtureDetail(found), ...patch } },
-      delete: async () => undefined, openLocation: async () => undefined, reSeparate: async () => '99999999-9999-4999-8999-999999999999', savePractice: async () => undefined, onChanged: noop
+      delete: async () => undefined, openLocation: async () => undefined, reSeparate: async () => '99999999-9999-4999-8999-999999999999', savePractice: async () => undefined, onChanged: noop,
+      onGuitarSplitCompleted: noop
     },
     tasks: { list: async () => [], cancel: async () => undefined, retry: async () => undefined, clearFinished: async () => undefined, onChanged: noop },
     runtime: { get: async () => runtime, detect: async () => runtime, install: async () => runtime, cancel: async () => undefined, repair: async () => runtime, remove: async () => undefined, clearModel: async () => undefined, onChanged: noop },

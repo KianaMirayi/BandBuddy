@@ -7,7 +7,6 @@ import type {
   ExportResult,
   ImportResult,
   ImportSourceOptions,
-  ImportStemsOptions,
   JobRecord,
   MediaCapabilities,
   MusicalKeyAnalysis,
@@ -23,7 +22,6 @@ import type {
   SongDetail,
   SongSummary,
   SourceChoice,
-  StemChoice,
   StoragePaths
 } from './domain.js'
 import type {
@@ -43,16 +41,16 @@ export interface BandBuddyApi {
     list(input?: { query?: string; filter?: 'all' | 'favorite' | 'processing' | 'recent' }): Promise<SongSummary[]>
     get(songId: string): Promise<SongDetail | null>
     chooseSource(): Promise<SourceChoice | null>
-    chooseStems(mode?: 'files' | 'folder'): Promise<StemChoice[]>
     importSource(options: ImportSourceOptions): Promise<ImportResult>
-    importStems(options: ImportStemsOptions): Promise<ImportResult>
     importLyrics(songId: string): Promise<SongDetail | null>
     update(input: { id: string; patch: { title?: string; artist?: string; favorite?: boolean; bpm?: number | null; beatOffsetMs?: number; musicalKey?: string | null; musicalKeySource?: MusicalKeySource | null; timeSignature?: string | null } }): Promise<SongDetail>
     delete(songId: string): Promise<void>
     openLocation(songId: string): Promise<void>
     reSeparate(songId: string): Promise<string>
+    requestGuitarSplit(songId: string): Promise<string | null>
     savePractice(state: PracticeState): Promise<void>
     onChanged(callback: () => void): Unsubscribe
+    onGuitarSplitCompleted(callback: (songId: string) => void): Unsubscribe
   }
   tasks: {
     list(): Promise<JobRecord[]>

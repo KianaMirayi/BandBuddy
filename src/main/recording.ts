@@ -4,6 +4,7 @@ import { open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/pr
 import path from 'node:path'
 import {
   dbToGain,
+  isStemVisible,
   type AudioBackend,
   type RecordingAudioSettings,
   type RecordingDeviceInfo,
@@ -511,10 +512,12 @@ export class RecordingService {
       const take = song.recordingTakes.find((candidate) => candidate.id === track.activeTakeId)
       return take ? [{ track, take }] : []
     })
-    const hasSolo = request.practice.tracks.some((track) => track.solo && !track.muted)
+    const hasSolo = request.practice.tracks.some((track) =>
+      isStemVisible(track.stemType, request.practice.guitarSplitEnabled) && track.solo && !track.muted
+    )
       || activeRecordings.some(({ track }) => track.solo && !track.muted)
     const audibleStems = request.practice.tracks
-      .filter((track) => !track.muted && (!hasSolo || track.solo))
+      .filter((track) => isStemVisible(track.stemType, request.practice.guitarSplitEnabled) && !track.muted && (!hasSolo || track.solo))
       .map((state) => ({ state, file: files.find((file) => file.type === state.stemType) }))
       .filter((entry): entry is { state: TrackState; file: NonNullable<typeof entry.file> } => Boolean(entry.file))
     const settings = this.database.getSettings()

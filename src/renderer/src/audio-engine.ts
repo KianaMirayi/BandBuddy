@@ -3,6 +3,7 @@ import {
   MAX_ROUTABLE_OUTPUT_CHANNELS,
   STEM_ORDER,
   dbToGain,
+  isStemVisible,
   normalizePitchSemitones,
   type PracticeState,
   type RecordingTake,
@@ -147,6 +148,8 @@ export class MultiTrackAudioEngine {
   private auxiliaryOutputSplitter: ChannelSplitterNode | null = null
   private outputMerger: ChannelMergerNode | null = null
   private outputConnections: OutputConnection[] = []
+  private outputRouteTransitionTimer: number | null = null
+  private outputRouteGeneration = 0
   private routableOutputChannels = 2
   private pitchNode: SignalsmithStretchNode | null = null
   private pitchNodePromise: Promise<SignalsmithStretchNode> | null = null
@@ -238,6 +241,28 @@ export class MultiTrackAudioEngine {
     await this.pitchTransition
   }
 
+  async updateStemSources(song: SongDetail): Promise<void> {
+    if (!this.song || this.song.id !== song.id) return
+    const anchor = this.anchor()
+    const currentTime = anchor?.currentTime ?? (this.practice?.positionMs ?? 0) / 1000
+    const mediaPlaying = Boolean(anchor && !anchor.paused)
+    const previousStemByType = new Map(this.song.stems.map((stem) => [stem.type, stem]))
+    const stemByType = new Map(song.stems.map((stem) => [stem.type, stem]))
+    const changed: HTMLAudioElement[] = []
+    for (const type of STEM_ORDER) {
+      const stem = stemByType.get(type)
+      const track = this.tracks.get(type)
+      if (!stem || !track || previousStemByType.get(type)?.mediaUrl === stem.mediaUrl) continue
+      track.element.src = stem.mediaUrl
+      track.element.playbackRate = this.practice?.playbackRate ?? song.practice.playbackRate
+      track.element.currentTime = currentTime
+      changed.push(track.element)
+    }
+    this.song = { ...song, practice: this.practice ?? song.practice }
+    if (this.practice) this.applyPractice(this.practice)
+    if (mediaPlaying) await Promise.allSettled(changed.map((element) => element.play()))
+  }
+
   async play(countInBeats: 0 | 4 | 8 = 0, onCountIn?: (remaining: number) => void): Promise<boolean> {
     if (!this.song || !this.practice) return false
     const generation = ++this.playbackGeneration
@@ -312,19 +337,32 @@ export class MultiTrackAudioEngine {
 
   applyPractice(practice: PracticeState, immediate = false): void {
     const previousPractice = this.practice
+    const guitarModeChanged = previousPractice !== null
+      && previousPractice.guitarSplitEnabled !== practice.guitarSplitEnabled
     const pitchChanged = (this.practice?.pitchSemitones ?? 0) !== (practice.pitchSemitones ?? 0)
     const metronomeChanged = this.practice?.metronomeEnabled !== practice.metronomeEnabled
       || this.practice?.metronomeBpm !== practice.metronomeBpm
       || this.practice?.metronomeOffsetMs !== practice.metronomeOffsetMs
       || this.practice?.playbackRate !== practice.playbackRate
-    const routingChanged = immediate || STEM_ORDER.some((stemType) => {
+    const routingChanged = immediate
+      || previousPractice?.guitarSplitEnabled !== practice.guitarSplitEnabled
+      || STEM_ORDER.some((stemType) => {
       const previous = previousPractice?.tracks.find((track) => track.stemType === stemType)?.outputChannelPair
       const next = practice.tracks.find((track) => track.stemType === stemType)?.outputChannelPair
       return (previous ?? DEFAULT_OUTPUT_CHANNEL_PAIR) !== (next ?? DEFAULT_OUTPUT_CHANNEL_PAIR)
     })
     const mediaPlaying = Boolean(this.anchor() && !this.anchor()!.paused)
     this.practice = practice
-    if (routingChanged) this.rebuildOutputRoutes()
+    if (guitarModeChanged && !immediate) {
+      this.cancelOutputRouteTransition()
+      // Keep both guitar alternatives connected while their gains crossfade.
+      // The hidden alternative is removed from hardware routing after the
+      // 35 ms gain ramp has reached silence.
+      this.rebuildOutputRoutes(true)
+    } else if (routingChanged) {
+      this.cancelOutputRouteTransition()
+      this.rebuildOutputRoutes()
+    }
     if (immediate || pitchChanged) this.queuePitchShift(practice.pitchSemitones ?? 0, immediate, mediaPlaying)
     const now = this.context?.currentTime ?? 0
     const ramp = immediate ? 0 : 0.035
@@ -334,12 +372,15 @@ export class MultiTrackAudioEngine {
       this.master.gain.linearRampToValueAtTime(dbToGain(practice.masterGainDb), now + ramp)
     }
     const recordingStates = this.song?.recordingTracks ?? []
-    const hasSolo = practice.tracks.some((state) => state.solo && !state.muted)
+    const hasSolo = practice.tracks.some((state) =>
+      isStemVisible(state.stemType, practice.guitarSplitEnabled) && state.solo && !state.muted
+    )
       || recordingStates.some((state) => this.recordings.has(state.id) && state.solo && !state.muted)
     for (const state of practice.tracks) {
       const track = this.tracks.get(state.stemType)
       if (!track) continue
-      const gain = !state.muted && (!hasSolo || state.solo) ? dbToGain(state.gainDb) : 0
+      const visible = isStemVisible(state.stemType, practice.guitarSplitEnabled)
+      const gain = visible && !state.muted && (!hasSolo || state.solo) ? dbToGain(state.gainDb) : 0
       track.gain.gain.cancelScheduledValues(now)
       track.gain.gain.setValueAtTime(track.gain.gain.value, now)
       track.gain.gain.linearRampToValueAtTime(gain, now + ramp)
@@ -364,6 +405,14 @@ export class MultiTrackAudioEngine {
           void recording.element.play().catch(() => undefined)
         }
       }
+    }
+    if (guitarModeChanged && !immediate) {
+      const generation = ++this.outputRouteGeneration
+      this.outputRouteTransitionTimer = window.setTimeout(() => {
+        if (generation !== this.outputRouteGeneration) return
+        this.outputRouteTransitionTimer = null
+        this.rebuildOutputRoutes()
+      }, 40)
     }
     if (metronomeChanged && mediaPlaying) {
       if (practice.metronomeEnabled) this.startMetronome()
@@ -589,11 +638,12 @@ export class MultiTrackAudioEngine {
     this.rebuildOutputRoutes()
   }
 
-  private rebuildOutputRoutes(): void {
+  private rebuildOutputRoutes(includeHidden = false): void {
     this.disconnectOutputRoutes()
     const merger = this.outputMerger
     if (!merger) return
     for (const stemType of STEM_ORDER) {
+      if (!includeHidden && this.practice && !isStemVisible(stemType, this.practice.guitarSplitEnabled)) continue
       const requestedPair = this.practice?.tracks.find((track) => track.stemType === stemType)?.outputChannelPair
       const firstChannel = resolveOutputChannelPair(requestedPair, this.routableOutputChannels) - 1
       if (stemType === 'drums') {
@@ -624,6 +674,12 @@ export class MultiTrackAudioEngine {
       try { source.disconnect(destination, output, input) } catch { /* Graph may already be disconnected. */ }
     }
     this.outputConnections = []
+  }
+
+  private cancelOutputRouteTransition(): void {
+    this.outputRouteGeneration += 1
+    if (this.outputRouteTransitionTimer !== null) window.clearTimeout(this.outputRouteTransitionTimer)
+    this.outputRouteTransitionTimer = null
   }
 
   private anchor(): HTMLAudioElement | null {
@@ -752,6 +808,7 @@ export class MultiTrackAudioEngine {
 
   private destroyTracks(): void {
     cancelAnimationFrame(this.frame)
+    this.cancelOutputRouteTransition()
     for (const { element, source, gain, splitter } of this.tracks.values()) {
       element.pause()
       element.removeAttribute('src')

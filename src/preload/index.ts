@@ -13,16 +13,16 @@ const api: BandBuddyApi = {
     list: (input = {}) => ipcRenderer.invoke(IPC.libraryList, input),
     get: (songId) => ipcRenderer.invoke(IPC.libraryGet, songId),
     chooseSource: () => ipcRenderer.invoke(IPC.libraryChooseSource),
-    chooseStems: (mode = 'files') => ipcRenderer.invoke(IPC.libraryChooseStems, mode),
     importSource: (options) => ipcRenderer.invoke(IPC.libraryImportSource, options),
-    importStems: (options) => ipcRenderer.invoke(IPC.libraryImportStems, options),
     importLyrics: (songId) => ipcRenderer.invoke(IPC.libraryImportLyrics, songId),
     update: (input) => ipcRenderer.invoke(IPC.libraryUpdate, input),
     delete: (songId) => ipcRenderer.invoke(IPC.libraryDelete, songId),
     openLocation: (songId) => ipcRenderer.invoke(IPC.libraryOpenLocation, songId),
     reSeparate: (songId) => ipcRenderer.invoke(IPC.libraryReseparate, songId),
+    requestGuitarSplit: (songId) => ipcRenderer.invoke(IPC.libraryRequestGuitarSplit, songId),
     savePractice: (state) => ipcRenderer.invoke(IPC.practiceSave, state),
-    onChanged: (callback) => subscribe<void>(IPC.eventLibraryChanged, callback)
+    onChanged: (callback) => subscribe<void>(IPC.eventLibraryChanged, callback),
+    onGuitarSplitCompleted: (callback) => subscribe<string>(IPC.eventGuitarSplitCompleted, callback)
   },
   tasks: {
     list: () => ipcRenderer.invoke(IPC.tasksList),

@@ -8,7 +8,6 @@ directories:
 files:
   - out/**/*
   - package.json
-  - build/icon.png
 asar: true
 asarUnpack:
   - node_modules/better-sqlite3/**/*
@@ -17,14 +16,16 @@ extraResources:
     to: worker
     filter:
       - "*.py"
+  - from: python/guitar_separator_hq
+    to: worker/guitar_separator_hq
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!tests/**"
   - from: resources/bin
     to: bin
   - from: resources/audio-host
     to: audio-host
-  - from: build/icon.png
-    to: icon.png
-    filter:
-      - "**/*"
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
 win:
@@ -65,8 +66,10 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   target:
-    - dmg
-    - zip
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
   artifactName: "BandBuddy-${version}-macos-${arch}.${ext}"
   extendInfo:
     NSMicrophoneUsageDescription: BandBuddy 需要访问音频输入设备来录制你的单轨练习。

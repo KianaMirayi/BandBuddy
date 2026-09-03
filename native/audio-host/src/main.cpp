@@ -17,12 +17,15 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -401,10 +404,33 @@ RtAudio::Api backendApi(const std::string& backend) {
 #endif
 }
 
+std::string deviceId(const std::string& backend, unsigned runtimeId, std::string_view name) {
+  // RtAudio and PortAudio expose process-local numeric indexes. Add a stable
+  // fingerprint so a disconnected device cannot silently hand its old index to
+  // a different interface after the next hardware refresh.
+  std::uint64_t fingerprint = 14695981039346656037ull;
+  for (const auto byte : name) {
+    fingerprint ^= static_cast<unsigned char>(byte);
+    fingerprint *= 1099511628211ull;
+  }
+  std::ostringstream value;
+  value << backend << ':' << runtimeId << ':' << std::hex << std::setw(16) << std::setfill('0') << fingerprint;
+  return value.str();
+}
+
 std::optional<unsigned> parseDeviceId(const std::string& value) {
-  const auto pos = value.rfind(':');
-  if (pos == std::string::npos || pos + 1 >= value.size()) return std::nullopt;
-  try { return static_cast<unsigned>(std::stoul(value.substr(pos + 1))); } catch (...) { return std::nullopt; }
+  const auto start = value.find(':');
+  if (start == std::string::npos || start + 1 >= value.size()) return std::nullopt;
+  const auto end = value.find(':', start + 1);
+  const auto runtimeId = value.substr(start + 1, end == std::string::npos ? std::string::npos : end - start - 1);
+  try {
+    std::size_t parsed = 0;
+    const auto result = std::stoul(runtimeId, &parsed);
+    if (parsed != runtimeId.size() || result > std::numeric_limits<unsigned>::max()) return std::nullopt;
+    return static_cast<unsigned>(result);
+  } catch (...) {
+    return std::nullopt;
+  }
 }
 
 struct Session {
@@ -822,7 +848,8 @@ class Host {
           if (rates.empty()) continue;
           const auto backend = exclusive ? "wasapi-exclusive" : "wasapi-shared";
           devices.push_back({
-            {"id", backend + std::string(":") + std::to_string(index)}, {"backend", backend}, {"name", info->name ? info->name : "WASAPI device"},
+            {"id", deviceId(backend, static_cast<unsigned>(index), info->name ? info->name : "WASAPI device")},
+            {"backend", backend}, {"name", info->name ? info->name : "WASAPI device"},
             {"inputChannels", info->maxInputChannels}, {"outputChannels", info->maxOutputChannels},
             {"duplexChannels", std::min(info->maxInputChannels, info->maxOutputChannels)}, {"sampleRates", rates},
             {"preferredSampleRate", static_cast<unsigned>(std::llround(info->defaultSampleRate))},
@@ -838,14 +865,18 @@ class Host {
     for (auto api : apis) {
       if (api != RtAudio::WINDOWS_ASIO && api != RtAudio::WINDOWS_WASAPI && api != RtAudio::MACOSX_CORE) continue;
       try {
-        RtAudio audio(api);
+        // A registered ASIO driver can remain installed while its hardware is
+        // unplugged. RtAudio reports that normal probe miss as a warning on
+        // stderr; use a callback so the driver is simply omitted from this
+        // fresh snapshot instead of presenting it as an application failure.
+        RtAudio audio(api, [](RtAudioErrorType, const std::string&) {});
         for (const auto id : audio.getDeviceIds()) {
           const auto info = audio.getDeviceInfo(id);
           const std::array<bool, 2> variants = api == RtAudio::WINDOWS_WASAPI ? std::array<bool, 2>{false, true} : std::array<bool, 2>{false, false};
           for (std::size_t variant = 0; variant < (api == RtAudio::WINDOWS_WASAPI ? 2u : 1u); ++variant) {
             const auto backend = backendName(api, variants[variant]);
             devices.push_back({
-              {"id", backend + ":" + std::to_string(id)}, {"backend", backend}, {"name", info.name},
+              {"id", deviceId(backend, id, info.name)}, {"backend", backend}, {"name", info.name},
               {"inputChannels", info.inputChannels}, {"outputChannels", info.outputChannels}, {"duplexChannels", info.duplexChannels},
               {"sampleRates", info.sampleRates}, {"preferredSampleRate", info.preferredSampleRate ? info.preferredSampleRate : info.currentSampleRate},
               {"defaultInput", info.isDefaultInput}, {"defaultOutput", info.isDefaultOutput}
@@ -1309,10 +1340,15 @@ int main(int argc, char** argv) {
     } catch (...) {
       signalsmithPitch = false;
     }
-    const bool ok = countInSilent && channelMapping && xrunCounted && signalsmithPitch;
+    const auto firstDeviceId = deviceId("asio", 7, "Interface A");
+    const auto replacementDeviceId = deviceId("asio", 7, "Interface B");
+    const bool deviceIdentity = firstDeviceId != replacementDeviceId
+      && parseDeviceId(firstDeviceId) == 7u && parseDeviceId("asio:7") == 7u
+      && !parseDeviceId("asio:not-a-number");
+    const bool ok = countInSilent && channelMapping && xrunCounted && signalsmithPitch && deviceIdentity;
     emit({{"ok", ok}, {"name", "bandbuddy-audio-host"}, {"protocolVersion", 1},
       {"tests", {{"countInDoesNotRecord", countInSilent}, {"channelMapping", channelMapping}, {"xrunCounted", xrunCounted},
-        {"signalsmithPitch", signalsmithPitch}}}});
+        {"signalsmithPitch", signalsmithPitch}, {"deviceIdentity", deviceIdentity}}}});
     return ok ? 0 : 1;
   }
   const bool simulate = argc > 1 && std::string(argv[1]) == "--simulate";

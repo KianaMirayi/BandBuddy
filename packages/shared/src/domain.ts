@@ -1,5 +1,35 @@
-export const STEM_ORDER = ['vocals', 'drums', 'bass', 'guitar', 'piano', 'other'] as const
+export const LEGACY_STEM_ORDER = ['vocals', 'drums', 'bass', 'guitar', 'piano', 'other'] as const
+export const GUITAR_SPLIT_STEMS = ['acoustic_guitar', 'lead_guitar', 'rhythm_guitar'] as const
+export const STEM_ORDER = [
+  'vocals', 'drums', 'bass', 'guitar',
+  ...GUITAR_SPLIT_STEMS,
+  'piano', 'other'
+] as const
 export type StemType = (typeof STEM_ORDER)[number]
+export type StemStorageFormat = 'flac24' | 'mp3_320'
+
+export function stemStorageFormat(highQualityStems: boolean): StemStorageFormat {
+  return highQualityStems ? 'flac24' : 'mp3_320'
+}
+
+export function isStemVisible(stemType: StemType, guitarSplitEnabled: boolean): boolean {
+  return guitarSplitEnabled
+    ? stemType !== 'guitar'
+    : !GUITAR_SPLIT_STEMS.includes(stemType as (typeof GUITAR_SPLIT_STEMS)[number])
+}
+
+export function visibleStemTypes(guitarSplitEnabled: boolean): StemType[] {
+  return STEM_ORDER.filter((stemType) => isStemVisible(stemType, guitarSplitEnabled))
+}
+
+export function normalizeSelectedStemForGuitarMode(
+  selectedStem: StemType | null,
+  guitarSplitEnabled: boolean
+): StemType | null {
+  if (guitarSplitEnabled && selectedStem === 'guitar') return 'acoustic_guitar'
+  if (!guitarSplitEnabled && selectedStem && GUITAR_SPLIT_STEMS.includes(selectedStem as (typeof GUITAR_SPLIT_STEMS)[number])) return 'guitar'
+  return selectedStem
+}
 
 export const PLAYBACK_RATE_MIN = 0.2
 export const PLAYBACK_RATE_MAX = 4
@@ -19,6 +49,7 @@ export const DEFAULT_OUTPUT_CHANNEL_PAIR = 1
 export const MAX_ROUTABLE_OUTPUT_CHANNELS = 32
 
 export type ComputeDevice = 'auto' | 'cuda' | 'mps' | 'cpu'
+export type GuitarSplitStatus = 'missing' | 'pending' | 'ready' | 'failed'
 export type RuntimeStatus =
   | 'missing'
   | 'detecting'
@@ -114,6 +145,9 @@ export const STEM_META: Record<StemType, StemMeta> = {
   drums: { label: '鼓组', shortLabel: 'Drums', color: '#718da9', icon: 'drums' },
   bass: { label: '贝斯', shortLabel: 'Bass', color: '#809779', icon: 'bass' },
   guitar: { label: '吉他', shortLabel: 'Guitar', color: '#b98358', icon: 'guitar' },
+  acoustic_guitar: { label: '木吉他', shortLabel: 'Acoustic', color: '#c69763', icon: 'guitar' },
+  lead_guitar: { label: '主音吉他', shortLabel: 'Lead', color: '#c36f54', icon: 'guitar' },
+  rhythm_guitar: { label: '节奏吉他', shortLabel: 'Rhythm', color: '#9b755d', icon: 'guitar' },
   piano: { label: '钢琴', shortLabel: 'Piano', color: '#8c819f', icon: 'piano' },
   other: { label: '其他', shortLabel: 'Other', color: '#8d8982', icon: 'other' }
 }
@@ -194,6 +228,15 @@ export function normalizeTrackOrder(
     seen.add(key)
     normalized.push(key)
   }
+  const splitKeys = GUITAR_SPLIT_STEMS.map(stemTrackOrderKey)
+  for (const [splitIndex, key] of splitKeys.entries()) {
+    if (seen.has(key)) continue
+    const predecessor = splitIndex === 0 ? stemTrackOrderKey('guitar') : splitKeys[splitIndex - 1]!
+    const predecessorIndex = normalized.indexOf(predecessor)
+    if (predecessorIndex < 0) continue
+    seen.add(key)
+    normalized.splice(predecessorIndex + 1, 0, key)
+  }
   for (const key of available) {
     if (seen.has(key)) continue
     seen.add(key)
@@ -225,6 +268,7 @@ export interface PracticeState {
   metronomeBpm: number
   metronomeOffsetMs: number
   desktopLyricsEnabled: boolean
+  guitarSplitEnabled: boolean
   countInBeats: 0 | 4 | 8
   loopStartMs: number | null
   loopEndMs: number | null
@@ -260,6 +304,7 @@ export interface SongSummary {
   progress: number
   phase: string | null
   stemTypes: StemType[]
+  guitarSplitStatus: GuitarSplitStatus
   createdAt: string
   updatedAt: string
   lastPracticedAt: string | null
@@ -416,7 +461,7 @@ export interface RecordingStartRequest {
 export interface JobRecord {
   id: string
   songId: string | null
-  type: 'separate' | 'normalizeStems' | 'export' | 'runtimeInstall'
+  type: 'separate' | 'guitarSplit' | 'normalizeStems' | 'export' | 'runtimeInstall'
   status: JobStatus
   phase: string
   progress: number
@@ -444,9 +489,7 @@ export interface RuntimeInfo {
   pythonVersion: string | null
   torchVersion: string | null
   cudaVersion: string | null
-  demucsVersion: string | null
   modelReady: boolean
-  modelRevision: string
   runtimePath: string
   modelPath: string
   error: string | null
@@ -476,7 +519,6 @@ export interface NetworkSettings {
   pythonInstallMirror: string
   pythonIndexUrl: string
   pytorchIndexUrl: string
-  modelBaseUrl: string
 }
 
 export interface AppSettings {
@@ -490,6 +532,7 @@ export interface AppSettings {
   recordingAudio: RecordingAudioSettings
   keepSource: boolean
   closeToTrayWhileWorking: boolean
+  highQualityStems: boolean
   network: NetworkSettings
 }
 
@@ -513,32 +556,10 @@ export interface SourceChoice {
   inferredTitle: string
 }
 
-export interface StemChoice {
-  path: string
-  name: string
-  inferredType: StemType | null
-}
-
 export interface ImportResult {
   songId: string | null
   jobId: string | null
   duplicate: SongSummary | null
-  needsPadding: boolean
-  durationDifferenceMs: number
-  warnings: string[]
-}
-
-export interface ExistingStemInput {
-  path: string
-  type: StemType
-}
-
-export interface ImportStemsOptions {
-  files?: ExistingStemInput[]
-  folderPath?: string
-  title?: string
-  artist?: string
-  padMismatched?: boolean
 }
 
 export interface ExportRequest {
@@ -574,6 +595,7 @@ export function createDefaultPracticeState(songId: string): PracticeState {
     metronomeBpm: 120,
     metronomeOffsetMs: 0,
     desktopLyricsEnabled: false,
+    guitarSplitEnabled: false,
     countInBeats: 0,
     loopStartMs: null,
     loopEndMs: null,
@@ -629,9 +651,23 @@ export function normalizeBeatOffsetMs(offsetMs: number, bpm: number): number {
   return Object.is(normalized, -0) ? 0 : normalized
 }
 
-export function isTrackAudible(track: TrackState, allTracks: readonly TrackState[]): boolean {
+export function visibleTrackStates(
+  tracks: readonly TrackState[],
+  guitarSplitEnabled: boolean
+): TrackState[] {
+  return tracks.filter((track) => isStemVisible(track.stemType, guitarSplitEnabled))
+}
+
+export function isTrackAudible(
+  track: TrackState,
+  allTracks: readonly TrackState[],
+  guitarSplitEnabled = false
+): boolean {
+  if (!isStemVisible(track.stemType, guitarSplitEnabled)) return false
   if (track.muted) return false
-  const hasSolo = allTracks.some((candidate) => candidate.solo && !candidate.muted)
+  const hasSolo = allTracks.some((candidate) =>
+    isStemVisible(candidate.stemType, guitarSplitEnabled) && candidate.solo && !candidate.muted
+  )
   return !hasSolo || track.solo
 }
 

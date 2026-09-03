@@ -41,19 +41,6 @@ export const importSourceSchema = z.object({
   forceDuplicate: z.boolean().optional()
 })
 
-export const existingStemInputSchema = z.object({
-  path: z.string().min(1),
-  type: stemTypeSchema
-})
-
-export const importStemsSchema = z.object({
-  files: z.array(existingStemInputSchema).min(2).max(6).optional(),
-  folderPath: z.string().min(1).optional(),
-  title: z.string().trim().max(200).optional(),
-  artist: z.string().trim().max(200).optional(),
-  padMismatched: z.boolean().optional()
-}).refine((value) => Boolean(value.files?.length || value.folderPath), '需要选择分轨文件或文件夹')
-
 export const updateSongSchema = z.object({
   id: z.string().uuid(),
   patch: z.object({
@@ -90,6 +77,7 @@ export const practiceStateSchema = z.object({
   metronomeBpm: z.number().min(20).max(400),
   metronomeOffsetMs: z.number().min(METRONOME_OFFSET_MIN_MS).max(METRONOME_OFFSET_MAX_MS),
   desktopLyricsEnabled: z.boolean(),
+  guitarSplitEnabled: z.boolean(),
   countInBeats: z.union([z.literal(0), z.literal(4), z.literal(8)]),
   loopStartMs: z.number().nonnegative().nullable(),
   loopEndMs: z.number().nonnegative().nullable(),
@@ -97,15 +85,15 @@ export const practiceStateSchema = z.object({
   zoom: z.number().min(1).max(100),
   scroll: z.number().nonnegative(),
   selectedStem: stemTypeSchema.nullable(),
-  tracks: z.array(trackStateSchema).length(6),
+  tracks: z.array(trackStateSchema).length(STEM_ORDER.length),
   trackOrder: z.array(trackOrderKeySchema).min(STEM_ORDER.length),
   updatedAt: z.string()
 }).refine((value) => new Set(value.tracks.map((track) => track.stemType)).size === STEM_ORDER.length, {
-  message: '练习状态必须包含六条唯一音轨'
+  message: '练习状态必须包含九条唯一音轨'
 }).refine((value) => new Set(value.trackOrder).size === value.trackOrder.length, {
   message: '轨道顺序不能包含重复项'
 }).refine((value) => STEM_ORDER.every((stemType) => value.trackOrder.includes(stemTrackOrderKey(stemType))), {
-  message: '轨道顺序必须包含六条分轨'
+  message: '轨道顺序必须包含九条分轨'
 }).refine((value) => value.loopStartMs === null || value.loopEndMs === null || value.loopEndMs > value.loopStartMs, {
   message: 'B 点必须晚于 A 点'
 })
@@ -114,7 +102,7 @@ export const exportRequestSchema = z.object({
   songId: z.string().uuid(),
   kind: z.enum(['stems', 'mix']),
   format: exportFormatSchema,
-  stemTypes: z.array(stemTypeSchema).min(1).max(6),
+  stemTypes: z.array(stemTypeSchema).min(1).max(STEM_ORDER.length),
   outputPath: z.string().min(1).optional(),
   applyPlaybackRate: z.boolean(),
   playbackRate: z.number().min(PLAYBACK_RATE_MIN).max(PLAYBACK_RATE_MAX),
@@ -151,8 +139,7 @@ export const networkSettingsSchema = z.object({
   proxyUrl: z.string().max(2000),
   pythonInstallMirror: z.union([z.literal(''), httpsUrlSchema]),
   pythonIndexUrl: httpsUrlSchema,
-  pytorchIndexUrl: z.union([z.literal(''), httpsUrlSchema]),
-  modelBaseUrl: httpsUrlSchema
+  pytorchIndexUrl: z.union([z.literal(''), httpsUrlSchema])
 })
 
 export const appSettingsSchema = z.object({
@@ -166,6 +153,7 @@ export const appSettingsSchema = z.object({
   recordingAudio: recordingAudioSettingsSchema,
   keepSource: z.boolean(),
   closeToTrayWhileWorking: z.boolean(),
+  highQualityStems: z.boolean(),
   network: networkSettingsSchema
 })
 

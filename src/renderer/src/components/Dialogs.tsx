@@ -26,6 +26,7 @@ import {
   STEM_META,
   STEM_ORDER,
   formatMusicalKey,
+  isStemVisible,
   parseMusicalKey,
   type AppSettings,
   type AudioBackend,
@@ -41,7 +42,6 @@ import {
   type RuntimeInfo,
   type SongDetail,
   type SongSummary,
-  type StemChoice,
   type StemType
 } from '@shared/domain.js'
 import { applyRuntimeSourcePreset, matchRuntimeSourcePreset, type RuntimeSourcePreset } from '@shared/runtime-sources.js'
@@ -56,24 +56,21 @@ export function ImportDialog({
 }: {
   open: boolean
   onOpenChange(open: boolean): void
-  onImported(songId: string, warnings: string[]): void
+  onImported(songId: string): void
   onOpenDuplicate(songId: string): void
   onNeedsRuntime(): void
 }): React.JSX.Element {
-  const [mode, setMode] = useState<'song' | 'stems'>('song')
   const [source, setSource] = useState<{ path: string; name: string } | null>(null)
-  const [stems, setStems] = useState<StemChoice[]>([])
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [duplicate, setDuplicate] = useState<{ id: string; title: string } | null>(null)
-  const [needsPadding, setNeedsPadding] = useState(false)
 
   useEffect(() => {
     if (!open) return
-    setMode('song'); setSource(null); setStems([]); setTitle(''); setArtist('')
-    setError(''); setDuplicate(null); setNeedsPadding(false)
+    setSource(null); setTitle(''); setArtist('')
+    setError(''); setDuplicate(null)
   }, [open])
 
   const chooseSource = async (): Promise<void> => {
@@ -83,33 +80,14 @@ export function ImportDialog({
     if (!title) setTitle(choice.inferredTitle)
   }
 
-  const chooseStems = async (choiceMode: 'files' | 'folder'): Promise<void> => {
-    const choices = await window.bandbuddy.library.chooseStems(choiceMode)
-    if (!choices.length) return
-    setStems(choices)
-    if (!title) {
-      const first = choices[0]
-      if (first) setTitle(first.name.replace(/\.[^.]+$/, '').replace(/[-_ ]?(vocals?|drums?|bass|guitar|piano|other|人声|鼓组|贝斯|吉他|钢琴|其他)$/i, ''))
-    }
-  }
-
-  const submit = async (forceDuplicate = false, padMismatched = false): Promise<void> => {
+  const submit = async (forceDuplicate = false): Promise<void> => {
     setBusy(true); setError('')
     try {
-      if (mode === 'song') {
-        if (!source) throw new Error('请先选择一首歌曲')
-        const result = await window.bandbuddy.library.importSource({ filePath: source.path, title, artist, forceDuplicate })
-        if (result.duplicate) { setDuplicate({ id: result.duplicate.id, title: result.duplicate.title }); return }
-        if (result.songId) {
-          onOpenChange(false); onImported(result.songId, result.warnings); onNeedsRuntime()
-        }
-      } else {
-        const files = stems.filter((stem): stem is StemChoice & { inferredType: StemType } => stem.inferredType !== null)
-        if (files.length < 2) throw new Error('至少需要两条已分类音轨')
-        if (new Set(files.map((file) => file.inferredType)).size !== files.length) throw new Error('每种音轨类型只能选择一次')
-        const result = await window.bandbuddy.library.importStems({ files: files.map((file) => ({ path: file.path, type: file.inferredType })), title, artist, padMismatched })
-        if (result.needsPadding) { setNeedsPadding(true); return }
-        if (result.songId) { onOpenChange(false); onImported(result.songId, result.warnings) }
+      if (!source) throw new Error('请先选择一首歌曲')
+      const result = await window.bandbuddy.library.importSource({ filePath: source.path, title, artist, forceDuplicate })
+      if (result.duplicate) { setDuplicate({ id: result.duplicate.id, title: result.duplicate.title }); return }
+      if (result.songId) {
+        onOpenChange(false); onImported(result.songId); onNeedsRuntime()
       }
     } catch (reason) {
       setError(toUserErrorMessage(reason, '导入失败，请检查音频或视频文件后重试'))
@@ -122,18 +100,13 @@ export function ImportDialog({
       <Dialog.Content className="dialog-content import-dialog" data-dialog-open="true" aria-describedby={undefined}>
         <Dialog.Title>导入音乐</Dialog.Title><Dialog.Close className="dialog-close"><X /></Dialog.Close>
         <p className="dialog-lead">源文件会复制到受管曲库。视频会先提取音频再分轨，所有处理均在本机完成。</p>
-        <div className="dialog-tabs"><button className={mode === 'song' ? 'active' : ''} onClick={() => setMode('song')}><FileAudio size={18} />导入歌曲</button><button className={mode === 'stems' ? 'active' : ''} onClick={() => setMode('stems')}><SlidersHorizontal size={18} />导入现有分轨</button></div>
-        {mode === 'song' ? <div className={`drop-zone ${source ? 'selected' : ''}`} onClick={() => void chooseSource()}>
+        <div className={`drop-zone ${source ? 'selected' : ''}`} onClick={() => void chooseSource()}>
           <span>{source ? <Check size={25} /> : <Upload size={25} />}</span><b>{source?.name ?? '选择音频或视频文件'}</b><small>{source ? '点击重新选择' : '音频：MP3 / WAV / FLAC / M4A / AAC / NCM · 视频：MP4 / M4V / MOV / MKV / WebM / AVI'}</small>
-        </div> : <>
-          <div className="stem-pick-actions"><button className="outline-button" onClick={() => void chooseStems('files')}><FileAudio size={17} />选择多个文件</button><button className="outline-button" onClick={() => void chooseStems('folder')}><FolderOpen size={17} />选择文件夹</button></div>
-          <div className="stem-mapping">{stems.length === 0 ? <p>BandBuddy 会按常见中英文文件名自动识别，导入前可手动改类。</p> : stems.map((stem, index) => <label key={`${stem.path}-${index}`}><span title={stem.path}>{stem.name}</span><select value={stem.inferredType ?? ''} onChange={(event) => setStems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, inferredType: (event.target.value || null) as StemType | null } : item))}><option value="">暂不导入</option>{STEM_ORDER.map((type) => <option value={type} key={type}>{STEM_META[type].shortLabel} · {STEM_META[type].label}</option>)}</select></label>)}</div>
-        </>}
+        </div>
         <div className="form-row"><label>歌曲标题<input maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="可选，默认使用文件名" /></label><label>艺术家<input maxLength={200} value={artist} onChange={(event) => setArtist(event.target.value)} placeholder="可选" /></label></div>
         {duplicate && <div className="inline-warning"><AlertTriangle /><span><b>曲库已有“{duplicate.title}”</b><small>可打开已有歌曲，或仍然创建一份副本。</small></span><button onClick={() => { onOpenChange(false); onOpenDuplicate(duplicate.id) }}>打开已有</button><button onClick={() => void submit(true)}>仍创建副本</button></div>}
-        {needsPadding && <div className="inline-warning"><AlertTriangle /><span><b>音轨时长差超过 500 ms</b><small>BandBuddy 不会猜测性对齐；确认后只在末尾补静音。</small></span><button onClick={() => void submit(false, true)}>确认补静音</button></div>}
         {error && <p className="form-error"><AlertTriangle size={16} />{error}</p>}
-        <footer className="dialog-footer"><Dialog.Close className="outline-button">取消</Dialog.Close><button className="primary-button" disabled={busy || (mode === 'song' ? !source : stems.length < 2)} onClick={() => void submit()}>{busy && <LoaderCircle className="spin" size={17} />}导入并处理</button></footer>
+        <footer className="dialog-footer"><Dialog.Close className="outline-button">取消</Dialog.Close><button className="primary-button" disabled={busy || !source} onClick={() => void submit()}>{busy && <LoaderCircle className="spin" size={17} />}导入并处理</button></footer>
       </Dialog.Content>
     </Dialog.Portal>
   </Dialog.Root>
@@ -145,10 +118,10 @@ export function TasksDrawer({ open, onOpenChange, jobs, onRefresh }: { open: boo
     <Dialog.Title>任务</Dialog.Title><Dialog.Close className="dialog-close"><X /></Dialog.Close><p className="dialog-lead">分离任务单线程运行，导出与标准化会依次进入队列。</p>
     <div className="drawer-summary"><Gauge /><span><b>{active.length ? `${active.length} 个进行中任务` : '当前没有活动任务'}</b><small>{jobs.length} 条任务记录</small></span></div>
     <div className="task-list">{jobs.length === 0 ? <div className="drawer-empty"><Check /><b>任务列表是空的</b><span>导入歌曲后，分离进度会显示在这里。</span></div> : jobs.map((job) => <article key={job.id}>
-      <header><span className={`task-dot ${job.status}`} /> <b>{job.type === 'separate' ? '分轨处理' : job.type === 'normalizeStems' ? '分轨标准化' : job.type === 'export' ? '音频导出' : '环境安装'}</b><em>{statusLabel(job.status)}</em></header>
+      <header><span className={`task-dot ${job.status}`} /> <b>{job.type === 'separate' ? '基础分轨' : job.type === 'guitarSplit' ? '吉他细分轨' : job.type === 'normalizeStems' ? '分轨标准化' : job.type === 'export' ? '音频导出' : '环境安装'}</b><em>{statusLabel(job.status)}</em></header>
       <p>{job.phase}</p><div className="progress-line"><i style={{ width: `${Math.round(job.progress * 100)}%` }} /></div><small>{Math.round(job.progress * 100)}% · {formatDate(job.createdAt)}</small>
       {job.errorMessage && job.status !== 'cancelled' && <pre>{toUserErrorMessage(`${job.errorCode ?? ''} ${job.errorMessage}`, '任务执行失败，请重试')}</pre>}
-      <footer>{['queued', 'blockedRuntime', 'preparing', 'separating', 'postprocessing'].includes(job.status) && <button onClick={() => void window.bandbuddy.tasks.cancel(job.id).then(onRefresh)}>取消</button>}{['failed', 'cancelled', 'interrupted'].includes(job.status) && <><button onClick={() => void window.bandbuddy.tasks.retry(job.id).then(onRefresh)}>重试</button>{job.errorCode === 'CUDA_OOM' && <button onClick={() => void window.bandbuddy.tasks.retry(job.id, true).then(onRefresh)}>使用 CPU 重试</button>}</>}</footer>
+      <footer>{['queued', 'blockedRuntime', 'preparing', 'separating', 'postprocessing'].includes(job.status) && <button onClick={() => void window.bandbuddy.tasks.cancel(job.id).then(onRefresh)}>取消</button>}{['failed', 'cancelled', 'interrupted'].includes(job.status) && <><button onClick={() => void window.bandbuddy.tasks.retry(job.id).then(onRefresh)}>重试</button>{['ACCELERATOR_OOM', 'CUDA_OOM'].includes(job.errorCode ?? '') && <button onClick={() => void window.bandbuddy.tasks.retry(job.id, true).then(onRefresh)}>使用 CPU 重试</button>}</>}</footer>
     </article>)}</div>
     <footer className="drawer-footer"><button className="outline-button" onClick={() => void window.bandbuddy.tasks.clearFinished().then(onRefresh)}><Trash2 size={16} />清除已完成</button><button className="outline-button" onClick={onRefresh}><RefreshCw size={16} />刷新</button></footer>
   </Dialog.Content></Dialog.Portal></Dialog.Root>
@@ -271,12 +244,16 @@ export function SettingsDrawer({
     <Dialog.Title>设置</Dialog.Title><p className="dialog-lead">管理本地分离环境、音频设备与网络源。</p>
     <section className="settings-section"><h3><Zap />本地分离环境</h3>
       <div className={`runtime-card ${runtime.status}`}><header><span><i /><b>{statusLabel(runtime.status)}</b></span><em>{runtime.selectedDevice.toUpperCase()}</em></header><p>{runtime.stage}</p>{runtime.progress !== null && <div className="progress-line"><i style={{ width: `${runtime.progress * 100}%` }} /></div>}{runtime.error && <pre>{toUserErrorMessage(runtime.error, '运行环境异常，请尝试修复或重新安装')}</pre>}
-        <dl>{runtime.windowsVcRuntimeVersion && <div><dt>VC++</dt><dd>{runtime.windowsVcRuntimeVersion}</dd></div>}<div><dt>Python</dt><dd>{runtime.pythonVersion ?? '—'}</dd></div><div><dt>PyTorch</dt><dd>{runtime.torchVersion ?? '—'}</dd></div><div><dt>CUDA</dt><dd>{runtime.cudaVersion ?? '—'}</dd></div><div><dt>Demucs</dt><dd>{runtime.demucsVersion ?? '—'}</dd></div></dl>
+        <dl>{runtime.windowsVcRuntimeVersion && <div><dt>VC++</dt><dd>{runtime.windowsVcRuntimeVersion}</dd></div>}<div><dt>Python</dt><dd>{runtime.pythonVersion ?? '—'}</dd></div><div><dt>PyTorch</dt><dd>{runtime.torchVersion ?? '—'}</dd></div><div><dt>CUDA</dt><dd>{runtime.cudaVersion ?? '—'}</dd></div></dl>
       </div>
-      {runtime.gpu ? <div className="gpu-card"><Gauge /><span><b>{runtime.gpu.name}</b><small>驱动 {runtime.gpu.driverVersion} · {Math.round(runtime.gpu.memoryMb / 1024)} GB 显存</small></span></div> : <div className="gpu-card muted"><Gauge /><span><b>{runtime.selectedDevice === 'mps' ? 'Apple MPS 加速' : '未检测到 NVIDIA GPU'}</b><small>{runtime.selectedDevice === 'mps' ? '将使用 Apple 芯片 GPU；不可用时自动切换 CPU。' : '将自动使用 CPU 完成模型分轨。'}</small></span></div>}
+      {runtime.gpu ? <div className="gpu-card"><Gauge /><span><b>{runtime.gpu.name}</b><small>驱动 {runtime.gpu.driverVersion} · {Math.round(runtime.gpu.memoryMb / 1024)} GB 显存</small></span></div> : <div className="gpu-card muted"><Gauge /><span><b>{runtime.selectedDevice === 'mps' ? 'Apple MPS 加速' : '未检测到 NVIDIA GPU'}</b><small>{runtime.selectedDevice === 'mps' ? '将使用 Apple 芯片 GPU；不可用时自动切换 CPU。' : '将自动使用 CPU 完成本地分轨。'}</small></span></div>}
       <div className="runtime-actions">{changing ? <button className="outline-button" onClick={() => void window.bandbuddy.runtime.cancel()}>取消当前操作</button> : runtime.status === 'ready' ? <><button className="outline-button" onClick={() => void action(() => window.bandbuddy.runtime.detect())}>重新检测</button><button className="outline-button" onClick={() => void action(() => window.bandbuddy.runtime.repair())}>修复环境</button></> : <button className="primary-button" onClick={() => setConfirmInstall(true)}><Download size={17} />安装本地环境</button>}</div>
-      {confirmInstall && <div className="install-confirm"><HardDrive /><span><b>预计需要 8–15 GB 可用空间</b><small>会下载私有 CPython、Torch 和约 1 GB 模型；Windows 缺少 VC++ 运行库时会从微软下载并请求系统授权。</small></span><button className="primary-button small" disabled={busy} onClick={() => { setConfirmInstall(false); void action(() => window.bandbuddy.runtime.install()) }}>确认安装</button><button onClick={() => setConfirmInstall(false)}>稍后</button></div>}
-      <div className="danger-actions"><button onClick={() => void action(() => window.bandbuddy.runtime.clearModel())}>清理模型缓存</button><button onClick={() => void action(() => window.bandbuddy.runtime.remove(false))}>卸载环境</button><button onClick={() => void action(() => window.bandbuddy.runtime.remove(true))}>环境与模型全部清理</button></div>
+      {confirmInstall && <div className="install-confirm"><HardDrive /><span><b>预计需要 8–15 GB 可用空间</b><small>会下载私有 CPython、Torch 和分轨资源；Windows 缺少 VC++ 运行库时会从微软下载并请求系统授权。</small></span><button className="primary-button small" disabled={busy} onClick={() => { setConfirmInstall(false); void action(() => window.bandbuddy.runtime.install()) }}>确认安装</button><button onClick={() => setConfirmInstall(false)}>稍后</button></div>}
+      <div className="danger-actions"><button onClick={() => void action(() => window.bandbuddy.runtime.clearModel())}>清理分轨资源缓存</button><button onClick={() => void action(() => window.bandbuddy.runtime.remove(false))}>卸载环境</button><button onClick={() => void action(() => window.bandbuddy.runtime.remove(true))}>环境与分轨资源全部清理</button></div>
+    </section>
+    <section className="settings-section"><h3><HardDrive />分轨音质</h3>
+      <label className="settings-toggle"><input type="checkbox" aria-label="高音质分轨" checked={draft.highQualityStems} onChange={(event) => setDraft({ ...draft, highQualityStems: event.target.checked })} /><span><b>高音质分轨</b><small>{draft.highQualityStems ? '新分轨保存为 24-bit FLAC，占用空间较大' : '新分轨保存为 320 kbps MP3，节省空间'}</small></span></label>
+      <p className="security-note">仅影响后续分轨；已有歌曲需重新分轨才会改变格式</p>
     </section>
     <section className="settings-section"><h3><SlidersHorizontal />性能与播放</h3><div className="settings-grid"><label>首选计算设备<select value={draft.preferredDevice} onChange={(event) => setDraft({ ...draft, preferredDevice: event.target.value as AppSettings['preferredDevice'] })}><option value="auto">自动：CUDA → MPS → CPU</option><option value="cuda">NVIDIA CUDA（不可用时回退）</option><option value="mps">Apple MPS（不可用时回退）</option><option value="cpu">CPU</option></select></label><label>关闭窗口时<select value={draft.closeToTrayWhileWorking ? 'tray' : 'quit'} onChange={(event) => setDraft({ ...draft, closeToTrayWhileWorking: event.target.value === 'tray' })}><option value="tray">有任务时留在托盘</option><option value="quit">直接退出</option></select></label><label>音频输出<select value={draft.audioOutputDeviceId} onChange={(event) => setDraft({ ...draft, audioOutputDeviceId: event.target.value })}><option value="">系统默认输出</option>{audioOutputs.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `音频输出 ${index + 1}`}</option>)}</select></label><label>延迟模式<select value={draft.latencyMode} onChange={(event) => setDraft({ ...draft, latencyMode: event.target.value as AppSettings['latencyMode'] })}><option value="interactive">低延迟</option><option value="balanced">平衡</option><option value="playback">稳定播放</option></select></label></div></section>
     <section className="settings-section recording-device-settings"><h3><AudioLines />练习录音设备</h3>
@@ -295,7 +272,7 @@ export function SettingsDrawer({
       {testState && ['testing', 'recording', 'countIn'].includes(testState.phase) && <><p className="device-runtime-stats">{testState.sampleRate} Hz · {testState.bufferFrames} frames · 约 {testState.latencyMs.toFixed(1)} ms · xrun {testState.xruns}</p><span className="settings-input-meter" aria-label={`输入峰值 ${Math.round(testPeak * 100)}%`}><i style={{ width: `${Math.min(100, testPeak * 100)}%` }} /></span></>}
       {recordingDeviceError && <p className="device-error">{recordingDeviceError}</p>}
     </section>
-    <section className="settings-section"><h3><FolderOpen />存储位置</h3><label className="path-field">数据目录<div className="path-picker"><input readOnly value={dataRoot} title={dataRoot} /><button className="outline-button" type="button" onClick={() => void chooseDataRoot()}><FolderOpen size={15} />浏览</button></div></label><p className="security-note">歌曲、运行环境和模型将分别保存在 music、envs 和 envs/models 子目录中。</p></section>
+    <section className="settings-section"><h3><FolderOpen />存储位置</h3><label className="path-field">数据目录<div className="path-picker"><input readOnly value={dataRoot} title={dataRoot} /><button className="outline-button" type="button" onClick={() => void chooseDataRoot()}><FolderOpen size={15} />浏览</button></div></label><p className="security-note">歌曲、运行环境和分轨资源将分别保存在 music、envs 和 envs/models 子目录中。</p></section>
     <section className="settings-section"><h3><Bug />调试与诊断</h3>
       <div className="debug-settings-row">
         <label className="settings-toggle"><input type="checkbox" aria-label="Debug 模式" checked={draft.debugMode} disabled={debugModeSaving} onChange={(event) => void toggleDebugMode(event.target.checked)} /><span><b>Debug 模式</b><small>{debugModeSaving ? '正在保存…' : '切换后立即生效，记录主进程、IPC 调用和界面控制台日志'}</small></span></label>
@@ -316,8 +293,7 @@ export function SettingsDrawer({
       <label>CPython 安装镜像<input value={draft.network.pythonInstallMirror} onChange={(event) => patchNetwork({ pythonInstallMirror: event.target.value })} placeholder="留空使用 uv 官方源" /></label>
       <label>Python 包镜像<input value={draft.network.pythonIndexUrl} onChange={(event) => patchNetwork({ pythonIndexUrl: event.target.value })} /></label>
       <label>PyTorch wheel 源<input value={draft.network.pytorchIndexUrl} onChange={(event) => patchNetwork({ pytorchIndexUrl: event.target.value })} placeholder="留空由 uv 自动选择官方后端" /></label>
-      <label>Demucs 模型源<input value={draft.network.modelBaseUrl} onChange={(event) => patchNetwork({ modelBaseUrl: event.target.value })} /></label>
-      <p className="security-note"><ShieldCheck size={13} />大陆镜像使用 npmmirror、阿里云和 ModelScope；固定桌面工具与模型仍按清单校验 SHA-256，代理凭据不会写入日志。修改任一地址后会自动切换为自定义。</p>
+      <p className="security-note"><ShieldCheck size={13} />Python 与桌面工具可使用所选镜像；分轨权重始终从固定仓库下载并按内置清单校验，代理凭据不会写入日志。</p>
     </section>
     </div>
     <footer className="drawer-footer sticky"><Dialog.Close className="outline-button">取消</Dialog.Close><button className="primary-button" onClick={() => void window.bandbuddy.settings.update(draft).then((saved) => { onSaved(saved); onOpenChange(false) })}>保存设置</button></footer>
@@ -327,8 +303,17 @@ export function SettingsDrawer({
 export function ExportDialog({ open, onOpenChange, song, practice, onBeforeStart }: { open: boolean; onOpenChange(open: boolean): void; song: SongDetail; practice: PracticeState; onBeforeStart(): Promise<void> }): React.JSX.Element {
   const [kind, setKind] = useState<'stems' | 'mix'>('mix')
   const [format, setFormat] = useState<ExportFormat>('flac')
-  const available = useMemo(() => song.stems.map((stem) => stem.type), [song])
+  const allAvailable = useMemo(() => STEM_ORDER.filter((type) => song.stems.some((stem) => stem.type === type)), [song])
+  const available = useMemo(
+    () => allAvailable.filter((type) => isStemVisible(type, practice.guitarSplitEnabled)),
+    [allAvailable, practice.guitarSplitEnabled]
+  )
+  const hiddenGuitarAlternatives = useMemo(
+    () => allAvailable.filter((type) => !isStemVisible(type, practice.guitarSplitEnabled)),
+    [allAvailable, practice.guitarSplitEnabled]
+  )
   const [selected, setSelected] = useState<StemType[]>(available)
+  const [includeHiddenGuitars, setIncludeHiddenGuitars] = useState(false)
   const [applyRate, setApplyRate] = useState(false)
   const [applyLoop, setApplyLoop] = useState(false)
   const [includeTake, setIncludeTake] = useState(false)
@@ -344,6 +329,7 @@ export function ExportDialog({ open, onOpenChange, song, practice, onBeforeStart
   useEffect(() => {
     if (!open) return
     setSelected(available)
+    setIncludeHiddenGuitars(false)
     setMessage('')
     setIncludeTake(takePracticeMatches)
     if (takePracticeMatches) setApplyRate(true)
@@ -354,8 +340,11 @@ export function ExportDialog({ open, onOpenChange, song, practice, onBeforeStart
       await onBeforeStart()
       const outputPath = await window.bandbuddy.export.choosePath(kind, format, song.title)
       if (!outputPath) return
+      const requestedStems = kind === 'stems' && includeHiddenGuitars
+        ? [...selected, ...hiddenGuitarAlternatives.filter((type) => !selected.includes(type))]
+        : selected.filter((type) => isStemVisible(type, practice.guitarSplitEnabled))
       const result = await window.bandbuddy.export.start({
-        songId: song.id, kind, format, stemTypes: selected, outputPath,
+        songId: song.id, kind, format, stemTypes: requestedStems, outputPath,
         applyPlaybackRate: kind === 'mix' && (applyRate || includeTake), playbackRate: practice.playbackRate,
         applyPitchShift: practice.pitchSemitones !== 0, pitchSemitones: practice.pitchSemitones,
         applyLoopRange: kind === 'mix' && applyLoop, loopStartMs: practice.loopStartMs, loopEndMs: practice.loopEndMs,
@@ -371,6 +360,7 @@ export function ExportDialog({ open, onOpenChange, song, practice, onBeforeStart
     <Dialog.Title>导出音频</Dialog.Title><Dialog.Close className="dialog-close"><X /></Dialog.Close><p className="dialog-lead">导出会保留当前升降调；当前混音还会应用练习室的 Mute、Solo 与增益。</p>
     <div className="dialog-tabs"><button className={kind === 'mix' ? 'active' : ''} onClick={() => setKind('mix')}><SlidersHorizontal />导出当前混音</button><button className={kind === 'stems' ? 'active' : ''} onClick={() => setKind('stems')}><FileAudio />分别导出音轨</button></div>
     <fieldset><legend>选择音轨</legend><div className="export-stems">{available.map((type) => <label key={type} style={{ '--track': STEM_META[type].color } as React.CSSProperties}><input type="checkbox" checked={selected.includes(type)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, type] : current.filter((item) => item !== type))} /><i /><span>{STEM_META[type].shortLabel}<small>{STEM_META[type].label}</small></span></label>)}</div></fieldset>
+    {kind === 'stems' && hiddenGuitarAlternatives.length > 0 && <label className="check-line"><input type="checkbox" checked={includeHiddenGuitars} onChange={(event) => setIncludeHiddenGuitars(event.target.checked)} /><span>包含隐藏吉他备选轨 <small>{hiddenGuitarAlternatives.map((type) => STEM_META[type].shortLabel).join(' / ')}</small></span></label>}
     <fieldset><legend>输出格式</legend><div className="format-options">{(['wav', 'flac', 'mp3'] as const).map((item) => <button className={format === item ? 'active' : ''} onClick={() => setFormat(item)} key={item}><b>{item.toUpperCase()}</b><small>{item === 'mp3' ? '320 kbps' : '44.1 kHz · 24-bit'}</small></button>)}</div></fieldset>
     <div className="export-pitch-note"><AudioLines size={17} /><span><b>{practice.pitchSemitones === 0 ? '按原调导出' : `导出当前 ${practice.pitchSemitones > 0 ? '+' : '−'}${Math.abs(practice.pitchSemitones)} 半音`}</b><small>Signalsmith 处理所有非鼓轨，鼓轨保持原音</small></span></div>
     {kind === 'mix' && <fieldset><legend>混音范围</legend><label className="check-line"><input type="checkbox" checked={applyRate || includeTake} disabled={includeTake} onChange={(event) => setApplyRate(event.target.checked)} /><span>应用当前速度 <small>{practice.playbackRate.toFixed(2)}×，保持音高</small></span></label><label className="check-line"><input type="checkbox" disabled={practice.loopStartMs === null || practice.loopEndMs === null} checked={applyLoop} onChange={(event) => setApplyLoop(event.target.checked)} /><span>仅导出当前 A–B <small>默认导出整首歌曲</small></span></label>{activeRecordings.length > 0 && <label className="check-line"><input type="checkbox" checked={includeTake} disabled={!takePracticeMatches} onChange={(event) => { setIncludeTake(event.target.checked); if (event.target.checked) setApplyRate(true) }} /><span>包含{activeRecordings.length === 1 ? `“${activeRecordings[0]!.track.name}”` : `${activeRecordings.length} 条录音轨`} <small>{takePracticeMatches ? `绑定 ${practice.playbackRate.toFixed(2)}× · ${practice.pitchSemitones === 0 ? '原调' : `${practice.pitchSemitones > 0 ? '+' : '−'}${Math.abs(practice.pitchSemitones)} 半音`}` : '部分录音轨的速度或调性不匹配，请先切回录制设置'}</small></span></label>}</fieldset>}

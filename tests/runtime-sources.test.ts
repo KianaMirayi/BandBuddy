@@ -24,7 +24,7 @@ describe('runtime download sources', () => {
       proxyUrl: 'https://127.0.0.1:7890',
       ...RUNTIME_SOURCE_PRESETS.official
     })
-    expect(matchRuntimeSourcePreset({ ...china, modelBaseUrl: 'https://example.com/models/' })).toBeNull()
+    expect(matchRuntimeSourcePreset({ ...china, pythonIndexUrl: 'https://example.com/simple/' })).toBeNull()
   })
 
   it('selects the newest mirrored CUDA backend supported by the driver', () => {

@@ -1,10 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createDefaultRecordingAudioSettings,
   type AppSettings,
   type RecordingDeviceInfo
 } from '../packages/shared/src/domain.js'
-import { reconcileAudioDeviceSettings } from '../src/renderer/src/startup-audio-devices.js'
+import {
+  loadStartupAudioSettings,
+  reconcileAudioDeviceSettings
+} from '../src/renderer/src/startup-audio-devices.js'
+
+afterEach(() => vi.unstubAllGlobals())
 
 function appSettings(): AppSettings {
   return {
@@ -12,6 +17,7 @@ function appSettings(): AppSettings {
     runtimeRoot: 'runtime',
     modelRoot: 'models',
     debugMode: false,
+    highQualityStems: false,
     preferredDevice: 'auto',
     audioOutputDeviceId: '',
     latencyMode: 'balanced',
@@ -23,8 +29,7 @@ function appSettings(): AppSettings {
       proxyUrl: '',
       pythonInstallMirror: '',
       pythonIndexUrl: '',
-      pytorchIndexUrl: '',
-      modelBaseUrl: ''
+      pytorchIndexUrl: ''
     }
   }
 }
@@ -46,6 +51,33 @@ function device(patch: Partial<RecordingDeviceInfo> = {}): RecordingDeviceInfo {
 }
 
 describe('startup audio device reconciliation', () => {
+  it('takes a new hardware snapshot each time the app startup loader runs', async () => {
+    const getSettings = vi.fn(() => Promise.resolve(appSettings()))
+    const updateSettings = vi.fn((settings: AppSettings) => Promise.resolve(settings))
+    const recordingDevices = vi.fn(() => Promise.resolve([device()]))
+    const playbackDevices = vi.fn(() => Promise.resolve([
+      { kind: 'audiooutput', deviceId: 'default' }
+    ]))
+    vi.stubGlobal('window', {
+      bandbuddy: {
+        settings: { get: getSettings, update: updateSettings },
+        recording: { devices: recordingDevices }
+      }
+    })
+    vi.stubGlobal('navigator', {
+      platform: 'Win32',
+      mediaDevices: { enumerateDevices: playbackDevices }
+    })
+
+    await loadStartupAudioSettings()
+    await loadStartupAudioSettings()
+
+    expect(getSettings).toHaveBeenCalledTimes(2)
+    expect(recordingDevices).toHaveBeenCalledTimes(2)
+    expect(playbackDevices).toHaveBeenCalledTimes(2)
+    expect(updateSettings).not.toHaveBeenCalled()
+  })
+
   it('replaces disconnected playback and recording devices with current system defaults', () => {
     const settings = appSettings()
     settings.audioOutputDeviceId = 'disconnected-web-output'
@@ -148,5 +180,32 @@ describe('startup audio device reconciliation', () => {
 
     expect(reconciled.recordingAudio.inputDeviceId).toBe('')
     expect(reconciled.recordingAudio.outputDeviceId).toBe('wasapi:output-only')
+  })
+
+  it('resets hardware-dependent values when no usable input or output is connected', () => {
+    const settings = appSettings()
+    settings.recordingAudio = {
+      ...settings.recordingAudio,
+      backend: 'asio',
+      inputDeviceId: 'asio:0:old-interface',
+      outputDeviceId: 'asio:0:old-interface',
+      inputChannelMode: 'stereo',
+      inputChannels: [6, 7],
+      sampleRate: 96_000
+    }
+
+    const reconciled = reconcileAudioDeviceSettings(settings, {
+      playbackOutputDeviceIds: new Set(),
+      recordingDevices: [],
+      platform: 'Win32'
+    })
+
+    expect(reconciled.recordingAudio).toMatchObject({
+      backend: 'auto',
+      inputDeviceId: '',
+      outputDeviceId: '',
+      inputChannels: [0, 1],
+      sampleRate: 0
+    })
   })
 })

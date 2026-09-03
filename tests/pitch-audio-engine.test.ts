@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { STEM_ORDER } from '../packages/shared/src/domain.js'
+import { GUITAR_SPLIT_STEMS, STEM_ORDER } from '../packages/shared/src/domain.js'
 import { fixtureDetail, fixtureSongs } from '../src/renderer/src/fixtures.js'
 import { MultiTrackAudioEngine } from '../src/renderer/src/audio-engine.js'
 
@@ -150,8 +150,8 @@ describe('Signalsmith realtime pitch graph', () => {
     expect((stretchMock.create as typeof stretchMock.create & { moduleUrl?: string }).moduleUrl)
       .not.toMatch(/^blob:/)
     expect(stretchMock.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      outputChannelCount: [10],
-      channelCount: 10,
+      outputChannelCount: [16],
+      channelCount: 16,
       channelInterpretation: 'discrete'
     }))
     expect(harmonicBus.connections.some(({ destination }) => destination === stretchMock.node)).toBe(true)
@@ -161,7 +161,10 @@ describe('Signalsmith realtime pitch graph', () => {
       expect.objectContaining({ destination: harmonicBus, output: 1, input: 1 })
     ]))
     expect(drumsGain.connections.some(({ destination }) => destination === bypassDelay)).toBe(true)
-    for (const [stemType, channels] of Object.entries({ vocals: [0, 1], bass: [2, 3], guitar: [4, 5], piano: [6, 7], other: [8, 9] })) {
+    for (const [stemType, channels] of Object.entries({
+      vocals: [0, 1], bass: [2, 3], guitar: [4, 5], acoustic_guitar: [6, 7],
+      lead_guitar: [8, 9], rhythm_guitar: [10, 11], piano: [12, 13], other: [14, 15]
+    })) {
       const source = context.sources[STEM_ORDER.indexOf(stemType as (typeof STEM_ORDER)[number])]!
       const gain = source.connections[0]!.destination as FakeGainNode
       const splitter = gain.connections[0]!.destination as FakeChannelSplitterNode
@@ -199,7 +202,7 @@ describe('Signalsmith realtime pitch graph', () => {
     expect(harmonicOutputSplitter.connections.length).toBeGreaterThan(unchangedRouteCount)
     expect(harmonicOutputSplitter.connections.at(-2)).toMatchObject({
       destination: outputMerger,
-      output: 8,
+      output: 14,
       input: 0
     })
     expect(harmonicOutputSplitter.connections).toContainEqual(
@@ -213,6 +216,69 @@ describe('Signalsmith realtime pitch graph', () => {
     expect(auxiliaryDelay.delayTime.value).toBe(0)
     expect(engine.outputLatencySeconds).toBe(0)
     engine.destroy()
+  })
+
+  it('crossfades guitar modes and removes the hidden alternative from hardware routing', async () => {
+    const song = fixtureDetail(fixtureSongs[0]!)
+    song.stems = song.stems.map((stem) => ({ ...stem, mediaUrl: `https://audio.test/${stem.type}.flac` }))
+    const engine = new MultiTrackAudioEngine()
+    await engine.load(song)
+    const context = FakeAudioContext.latest!
+    const gainsByStem = Object.fromEntries(STEM_ORDER.map((stemType, index) => [stemType, context.gains[index + 5]!]))
+    const internals = engine as unknown as { outputConnections: unknown[] }
+    expect(internals.outputConnections).toHaveLength(14)
+
+    vi.useFakeTimers()
+    try {
+      const splitPractice = { ...song.practice, guitarSplitEnabled: true }
+      engine.applyPractice(splitPractice)
+      expect(internals.outputConnections).toHaveLength(20)
+      expect(gainsByStem.guitar!.gain.value).toBe(0)
+      expect(gainsByStem.acoustic_guitar!.gain.value).toBe(1)
+      expect(gainsByStem.lead_guitar!.gain.value).toBe(1)
+      expect(gainsByStem.rhythm_guitar!.gain.value).toBe(1)
+
+      await vi.advanceTimersByTimeAsync(40)
+      expect(internals.outputConnections).toHaveLength(18)
+    } finally {
+      vi.useRealTimers()
+      engine.destroy()
+    }
+  })
+
+  it('attaches completed guitar stems at the current position without reloading the practice room', async () => {
+    const baseSong = fixtureDetail(fixtureSongs[0]!)
+    baseSong.practice = { ...baseSong.practice, guitarSplitEnabled: false, positionMs: 12_000 }
+    baseSong.stems = baseSong.stems
+      .filter((stem) => !GUITAR_SPLIT_STEMS.includes(stem.type as (typeof GUITAR_SPLIT_STEMS)[number]))
+      .map((stem) => ({ ...stem, mediaUrl: `https://audio.test/${stem.type}.flac` }))
+    const completedSong = fixtureDetail(fixtureSongs[0]!)
+    completedSong.practice = baseSong.practice
+    completedSong.stems = completedSong.stems.map((stem) => ({
+      ...stem,
+      mediaUrl: `https://audio.test/${stem.type}.flac`
+    }))
+    const engine = new MultiTrackAudioEngine()
+
+    try {
+      await engine.load(baseSong)
+      await engine.play()
+      const context = FakeAudioContext.latest!
+      context.sources[STEM_ORDER.indexOf('vocals')]!.element.currentTime = 31
+
+      await engine.updateStemSources(completedSong)
+
+      for (const stem of GUITAR_SPLIT_STEMS) {
+        const element = context.sources[STEM_ORDER.indexOf(stem)]!.element
+        expect(element).toMatchObject({
+          src: `https://audio.test/${stem}.flac`,
+          currentTime: 31,
+          paused: false
+        })
+      }
+    } finally {
+      engine.destroy()
+    }
   })
 
   it.each([-12, 12])('changes pitch to %s during playback without changing tempo or moving any stem', async (pitchSemitones) => {

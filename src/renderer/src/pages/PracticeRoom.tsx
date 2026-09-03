@@ -18,6 +18,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import {
   getStemTypeFromTrackOrderKey,
+  isStemVisible,
   moveTrackOrder,
   normalizeTrackOrder,
   STEM_META,
@@ -41,6 +42,9 @@ const icons: Record<StemType, typeof Mic2> = {
   drums: Drum,
   bass: Guitar,
   guitar: Guitar,
+  acoustic_guitar: Guitar,
+  lead_guitar: Guitar,
+  rhythm_guitar: Guitar,
   piano: Piano,
   other: Sparkles
 }
@@ -56,6 +60,8 @@ interface PracticeRoomProps {
   recordingState: RecordingState
   recordingMeter: RecordingMeter
   locked: boolean
+  guitarSplitPending?: boolean
+  guitarSplitReady?: boolean
   backLabel?: string
   onBack(): void
   onSeek(milliseconds: number): void
@@ -63,6 +69,8 @@ interface PracticeRoomProps {
   onRestart(): void
   onCycleLoop(): void
   onPatch(patch: Partial<PracticeState>): void
+  onGuitarSplit(enabled: boolean): void
+  onDismissGuitarSplitReady?(): void
   onTrack(stem: StemType, patch: Partial<TrackState>): void
   onSelected(stem: StemType): void
   onExport(): void
@@ -85,14 +93,19 @@ interface PracticeRoomProps {
 export function PracticeRoom(props: PracticeRoomProps): React.JSX.Element {
   const {
     song, practice, currentMs, playing, selectedStem, availableOutputChannelPairs,
-    recordingState, recordingMeter, locked, backLabel = '返回曲库',
-    onBack, onSeek, onPatch, onTrack, onSelected, onExport, onAddRecordingTrack, onEdit, onMore, onRecord,
+    recordingState, recordingMeter, locked, guitarSplitPending = false, guitarSplitReady = false, backLabel = '返回曲库',
+    onBack, onSeek, onPatch, onGuitarSplit, onTrack, onSelected, onExport, onAddRecordingTrack, onEdit, onMore, onRecord,
     onStopRecording, onCancelRecording, onSelectTake, onUpdateTake, onDeleteTake,
-    onRecordingTrack, onUseTakePractice, onTogglePlayback, onRestart, onCycleLoop, outputLatencyMs = 0
+    onRecordingTrack, onUseTakePractice, onTogglePlayback, onRestart, onCycleLoop,
+    onDismissGuitarSplitReady, outputLatencyMs = 0
   } = props
   const stems = new Map(song.stems.map((stem) => [stem.type, stem]))
   const recordingTracks = new Map(song.recordingTracks.map((track) => [track.id, track]))
   const trackOrder = normalizeTrackOrder(practice.trackOrder, song.recordingTracks.map((track) => track.id))
+  const visibleTrackOrder = trackOrder.filter((key) => {
+    const stemType = getStemTypeFromTrackOrderKey(key)
+    return stemType === null || isStemVisible(stemType, practice.guitarSplitEnabled)
+  })
   const [draggedTrack, setDraggedTrack] = useState<TrackOrderKey | null>(null)
   const [dropTarget, setDropTarget] = useState<{ key: TrackOrderKey; placement: 'before' | 'after' } | null>(null)
   const draggedTrackRef = useRef<TrackOrderKey | null>(null)
@@ -162,8 +175,8 @@ export function PracticeRoom(props: PracticeRoomProps): React.JSX.Element {
   useEffect(() => () => clearTrackDragListeners(), [])
 
   const moveTrackWithKeyboard = (key: TrackOrderKey, direction: -1 | 1): void => {
-    const index = trackOrder.indexOf(key)
-    const target = trackOrder[index + direction]
+    const index = visibleTrackOrder.indexOf(key)
+    const target = visibleTrackOrder[index + direction]
     if (!target) return
     onPatch({ trackOrder: moveTrackOrder(trackOrder, key, target, direction < 0 ? 'before' : 'after') })
   }
@@ -189,6 +202,22 @@ export function PracticeRoom(props: PracticeRoomProps): React.JSX.Element {
       <button className="outline-button" disabled={locked} onClick={onEdit}><Pencil size={16} />编辑信息</button>
       <button className="outline-button" disabled={locked} onClick={onExport}><Upload size={17} />导出</button>
       <button className="outline-button" disabled={locked} onClick={onAddRecordingTrack}><Plus size={17} />添加录音轨</button>
+      <div className="guitar-split-control">
+        <button
+          className={`outline-button ${practice.guitarSplitEnabled ? 'active' : ''}`}
+          disabled={locked || guitarSplitPending}
+          aria-pressed={practice.guitarSplitEnabled}
+          aria-describedby={guitarSplitPending ? `guitar-split-wait-${song.id}` : undefined}
+          onClick={() => onGuitarSplit(!practice.guitarSplitEnabled)}
+        ><Guitar size={17} />吉他分轨</button>
+        {guitarSplitPending && <span id={`guitar-split-wait-${song.id}`} className="guitar-split-tooltip" role="tooltip">
+          正在分轨中，请耐心等待
+        </span>}
+        {guitarSplitReady && <aside className="guitar-split-ready" role="status">
+          <span><b>吉他分轨已完成</b><small>现在可以切换木吉他、Lead 和 Rhythm</small></span>
+          <button aria-label="关闭吉他分轨完成提示" onClick={onDismissGuitarSplitReady}>×</button>
+        </aside>}
+      </div>
       <button className="outline-button" disabled={locked} onClick={onMore}><MoreHorizontal size={18} />更多</button>
       {song.musicalKey && <div className="practice-key-badge"><Sparkles size={15} /><span><b>{practice.pitchSemitones === 0 ? song.musicalKey : `${song.musicalKey} → ${transposeMusicalKey(song.musicalKey, practice.pitchSemitones)}`}</b><small>{song.musicalKeySource === 'manual' ? '手动纠正' : song.keyAnalysis ? `识别 ${Math.round(song.keyAnalysis.confidence * 100)}%` : '歌曲调'}{song.keyAnalysis?.segments.some((segment) => segment.possibleModulation) ? ` · 可能转调 ${song.keyAnalysis.segments.filter((segment) => segment.possibleModulation).length} 处` : ''}</small></span></div>}
     </section>
@@ -203,7 +232,7 @@ export function PracticeRoom(props: PracticeRoomProps): React.JSX.Element {
       />}
       <section className="mixer-card">
         <div className="track-list">
-          {trackOrder.map((key) => {
+          {visibleTrackOrder.map((key) => {
             const type = getStemTypeFromTrackOrderKey(key)
             const sharedDragProps = {
               trackKey: key,

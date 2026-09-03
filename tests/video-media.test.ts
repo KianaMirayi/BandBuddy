@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { STEM_ORDER } from '@shared/domain.js'
+import { GUITAR_SPLIT_STEMS, LEGACY_STEM_ORDER } from '@shared/domain.js'
 import { SOURCE_MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, isVideoSource } from '@shared/media-formats.js'
 import { BandBuddyDatabase, DATABASE_MIGRATIONS } from '../src/main/database.js'
 import { ImportService } from '../src/main/imports.js'
@@ -83,22 +83,40 @@ describe.skipIf(!hasTools)('real local video preprocessing and library lifecycle
   })
 
   it('queues a copied video, feeds extracted WAV to separation, and serves seekable muted video', async () => {
-    let workerInput = ''
+    const workerInputs: string[] = []
+    let releaseGuitar = (): void => undefined
+    const guitarGate = new Promise<void>((resolve) => { releaseGuitar = resolve })
     const runtime = {
       onChange: vi.fn(),
       getInfo: () => ({ status: 'ready', selectedDevice: 'cpu' }),
       runWorker: vi.fn(async (args: string[]) => {
-        workerInput = args[args.indexOf('--input') + 1]!
+        const command = args[0]
+        const workerInput = args[args.indexOf('--input') + 1]!
+        workerInputs.push(workerInput)
         const probe = await media.probe(workerInput)
         expect(probe.video).toBeNull()
         expect(probe).toMatchObject({ sampleRate: 44100, channels: 2 })
-        return { code: 0, result: { files: Object.fromEntries(STEM_ORDER.map((stem) => [stem, workerInput])) } }
+        if (command === 'separate-guitar') await guitarGate
+        const stems = command === 'separate-demucs' ? LEGACY_STEM_ORDER : GUITAR_SPLIT_STEMS
+        return {
+          code: 0,
+          result: {
+            files: Object.fromEntries(stems.map((stem) => [stem, workerInput])),
+            stats: Object.fromEntries(stems.map((stem) => [stem, { peak: stem === 'drums' ? 1.36 : 0.8 }]))
+          }
+        }
       })
     }
-    const scheduler = new JobScheduler(paths, database, runtime as never, media, logger as never, () => undefined, () => undefined)
+    const normalizeSpy = vi.spyOn(media, 'normalize')
+    const guitarCompleted = vi.fn()
+    const scheduler = new JobScheduler(paths, database, runtime as never, media, logger as never, () => undefined, () => undefined, guitarCompleted)
     const imports = new ImportService(paths, database, media, runtime as never, logger as never, () => undefined, () => undefined)
     const imported = await imports.importSource({ filePath: source })
     expect(imported.songId).toBeTruthy()
+    expect(database.getJob(imported.jobId!)?.payload).toMatchObject({ storageFormat: 'mp3_320' })
+    // A task owns the setting snapshot captured when it was created.
+    database.saveSettings({ ...database.getSettings(), highQualityStems: true })
+    expect(database.getJob(imported.jobId!)?.payload).toMatchObject({ storageFormat: 'mp3_320' })
     const stored = database.getSongRow(imported.songId!)!
     expect(stored.source_rel_path).toMatch(/original\.avi$/)
     const originalCopy = paths.resolveLibraryPath(database.getSettings().libraryRoot, stored.source_rel_path!)
@@ -108,9 +126,44 @@ describe.skipIf(!hasTools)('real local video preprocessing and library lifecycle
     scheduler.kick()
     await vi.waitFor(() => expect(['completed', 'failed']).toContain(database.getJob(imported.jobId!)?.status), { timeout: 15_000, interval: 40 })
     expect(database.getJob(imported.jobId!)?.status, database.getJob(imported.jobId!)?.errorMessage ?? '').toBe('completed')
-    expect(workerInput).toMatch(/video-audio\.wav$/)
+    const partial = database.getSong(imported.songId!)!
+    expect(partial.status).toBe('ready')
+    expect(partial.stems.map((stem) => stem.type).sort()).toEqual([...LEGACY_STEM_ORDER].sort())
+    expect(partial.guitarSplitStatus).toBe('pending')
+    expect(normalizeSpy).toHaveBeenCalledTimes(6)
+    const guitarJob = database.listJobs().find((job) => job.songId === imported.songId && job.type === 'guitarSplit')
+    expect(guitarJob).toBeTruthy()
+    releaseGuitar()
+    await vi.waitFor(() => expect(database.getJob(guitarJob!.id)?.status).toBe('completed'), { timeout: 15_000, interval: 40 })
+    expect(normalizeSpy).toHaveBeenCalledTimes(9)
+    for (const call of normalizeSpy.mock.calls) expect(call[5]).toBeCloseTo(0.999 / 1.36, 10)
+    expect(workerInputs).toHaveLength(2)
+    expect(workerInputs.every((input) => /video-audio\.wav$/.test(input))).toBe(true)
     const song = database.getSong(imported.songId!)!
-    expect(song.stems).toHaveLength(6)
+    expect(song.stems).toHaveLength(9)
+    expect(song.guitarSplitStatus).toBe('ready')
+    expect(guitarCompleted).toHaveBeenCalledWith(song.id)
+    expect(song.stems.every((stem) => stem.peaksUrl !== null)).toBe(true)
+    for (const stem of song.stems) {
+      const asset = database.getStemAsset(song.id, stem.id)
+      expect(asset?.peaksRelPath).toBeTruthy()
+      expect(existsSync(paths.resolveLibraryPath(database.getSettings().libraryRoot, asset!.peaksRelPath!))).toBe(true)
+    }
+    expect(song.practice.guitarSplitEnabled).toBe(false)
+    expect(Math.max(...song.stems.map((stem) => stem.durationMs)) - Math.min(...song.stems.map((stem) => stem.durationMs))).toBeLessThan(30)
+    const mp3Files = database.getActiveStemFiles(song.id)
+    expect(mp3Files).toHaveLength(9)
+    expect(mp3Files.every((file) => file.relPath.endsWith('.mp3'))).toBe(true)
+    const mp3Inspect = await runProcess(media.tool('ffprobe')!, [
+      '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_name,sample_rate,channels,bit_rate', '-of', 'json',
+      paths.resolveLibraryPath(database.getSettings().libraryRoot, mp3Files[0]!.relPath)
+    ])
+    expect(mp3Inspect.code, mp3Inspect.stderr).toBe(0)
+    expect(JSON.parse(mp3Inspect.stdout)).toMatchObject({
+      streams: [{ codec_name: 'mp3', sample_rate: '44100', channels: 2, bit_rate: '320000' }]
+    })
+    expect(imports.requestGuitarSplit(song.id)).toBeNull()
+    expect(database.getSong(song.id)?.practice.guitarSplitEnabled).toBe(true)
     expect(song.videoUrl).toBe(`bandbuddy-media://song/${song.id}/video`)
     const playbackPath = paths.resolveLibraryPath(database.getSettings().libraryRoot, database.getVideoRelative(song.id)!)
     const inspected = await runProcess(media.tool('ffprobe')!, ['-v', 'error', '-show_streams', '-of', 'json', playbackPath])
@@ -128,10 +181,27 @@ describe.skipIf(!hasTools)('real local video preprocessing and library lifecycle
     const previousVideo = database.getVideoRelative(song.id)
     const prepareSpy = vi.spyOn(media, 'prepareVideo')
     const retryId = imports.reSeparate(song.id)
+    expect(database.getJob(retryId)?.payload).toMatchObject({ storageFormat: 'flac24' })
+    database.saveSettings({ ...database.getSettings(), highQualityStems: false })
+    expect(database.getJob(retryId)?.payload).toMatchObject({ storageFormat: 'flac24' })
     scheduler.kick()
     await vi.waitFor(() => expect(database.getJob(retryId)?.status).toBe('completed'), { timeout: 15_000, interval: 40 })
+    const retryGuitarJob = database.listJobs().find((job) => job.songId === song.id && job.type === 'guitarSplit' && job.id !== guitarJob!.id)
+    expect(retryGuitarJob).toBeTruthy()
+    await vi.waitFor(() => expect(database.getJob(retryGuitarJob!.id)?.status).toBe('completed'), { timeout: 15_000, interval: 40 })
     expect(prepareSpy).not.toHaveBeenCalled()
     expect(database.getVideoRelative(song.id)).toBe(previousVideo)
+    const flacFiles = database.getActiveStemFiles(song.id)
+    expect(flacFiles).toHaveLength(9)
+    expect(flacFiles.every((file) => file.relPath.endsWith('.flac'))).toBe(true)
+    const flacInspect = await runProcess(media.tool('ffprobe')!, [
+      '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_name,sample_rate,channels,bits_per_raw_sample', '-of', 'json',
+      paths.resolveLibraryPath(database.getSettings().libraryRoot, flacFiles[0]!.relPath)
+    ])
+    expect(flacInspect.code, flacInspect.stderr).toBe(0)
+    expect(JSON.parse(flacInspect.stdout)).toMatchObject({
+      streams: [{ codec_name: 'flac', sample_rate: '44100', channels: 2, bits_per_raw_sample: '24' }]
+    })
     prepareSpy.mockRestore()
   }, 30_000)
 
@@ -177,6 +247,57 @@ describe.skipIf(!hasTools)('real local video preprocessing and library lifecycle
     expect(JSON.parse(inspected.stdout).streams[0].codec_name).toBe('vp8')
   })
 
+  it('reprocesses a legacy six-stem song for guitar mode and preserves it on failure', async () => {
+    database.saveSettings({ ...database.getSettings(), highQualityStems: false })
+    const songId = '80000000-0000-4000-8000-000000000000'
+    database.createSong({
+      title: '旧六轨', artist: '', sourceRelPath: `${songId}/source/original.mp3`, sourceHash: 'legacy',
+      sourceFormat: 'mp3', durationMs: 1_000, sampleRate: 44_100, channels: 2, artworkRelPath: null,
+      status: 'ready', phase: null
+    }, songId)
+    const oldJob = database.createJob('separate', songId, 'queued', '旧任务', {})
+    database.activateSeparation(songId, oldJob, 'bandbuddy-stems:v1.3.0', 'cpu', LEGACY_STEM_ORDER.map((type, index) => ({
+      id: `${index + 1}0000000-0000-4000-8000-000000000000`, type,
+      relPath: `${songId}/versions/old/${type}.flac`, peaksRelPath: null,
+      durationMs: 1_000, sampleRate: 44_100, channels: 2
+    })))
+
+    const runtime = {
+      onChange: vi.fn(),
+      getInfo: () => ({ status: 'ready', selectedDevice: 'cpu' }),
+      runWorker: vi.fn(async () => ({ code: 1, result: {}, error: 'synthetic worker failure' }))
+    }
+    const imports = new ImportService(paths, database, media, runtime as never, logger as never, () => undefined, () => undefined)
+    const jobId = imports.requestGuitarSplit(songId)
+    expect(jobId).toBeTruthy()
+    expect(database.getJob(jobId!)?.type).toBe('guitarSplit')
+    expect(database.getJob(jobId!)?.payload).toMatchObject({
+      storageFormat: 'mp3_320', baseSeparationId: expect.any(String),
+      expectedActiveSeparationId: expect.any(String), enableGuitarSplitOnSuccess: true
+    })
+    const scheduler = new JobScheduler(paths, database, runtime as never, media, logger as never, () => undefined, () => undefined)
+    scheduler.kick()
+    await vi.waitFor(() => expect(database.getJob(jobId!)?.status).toBe('failed'), { timeout: 5_000, interval: 25 })
+    const preserved = database.getSong(songId)!
+    expect(preserved.status).toBe('ready')
+    expect(preserved.phase).toBe('吉他细分未完成，基础分轨可继续')
+    expect(preserved.guitarSplitStatus).toBe('failed')
+    expect(preserved.stems.map((stem) => stem.type).sort()).toEqual([...LEGACY_STEM_ORDER].sort())
+    expect(preserved.practice.guitarSplitEnabled).toBe(false)
+  })
+
+  it('does not offer guitar reprocessing when a historical song has no source audio', () => {
+    const songId = '90000000-0000-4000-8000-000000000000'
+    database.createSong({
+      title: '仅历史分轨', artist: '', sourceRelPath: null, sourceHash: null, sourceFormat: null,
+      durationMs: 1_000, sampleRate: 44_100, channels: 2, artworkRelPath: null,
+      status: 'ready', phase: null
+    }, songId)
+    const runtime = { getInfo: () => ({ status: 'ready' }) }
+    const imports = new ImportService(paths, database, media, runtime as never, logger as never, () => undefined, () => undefined)
+    expect(() => imports.requestGuitarSplit(songId)).toThrow('ORIGINAL_SOURCE_NOT_AVAILABLE')
+  })
+
   it('rejects silent videos and cancels extraction without publishing partial output', async () => {
     const silent = path.join(root, 'silent.webm')
     const generated = await runProcess(media.tool('ffmpeg')!, [
@@ -202,7 +323,12 @@ describe.skipIf(!hasTools)('real local video preprocessing and library lifecycle
     old.prepare('INSERT INTO songs(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)')
       .run('old-song', '已有音频', '2026-08-01', '2026-08-01')
     old.prepare('INSERT INTO practice_states(song_id, state_json, updated_at) VALUES (?, ?, ?)')
-      .run('old-song', JSON.stringify({ positionMs: 12000, playbackRate: 0.8, loopEnabled: true, loopStartMs: 5000, loopEndMs: 15000 }), '2026-08-01')
+      .run('old-song', JSON.stringify({
+        positionMs: 12000, playbackRate: 0.8, loopEnabled: true, loopStartMs: 5000, loopEndMs: 15000,
+        selectedStem: 'guitar', tracks: [{ stemType: 'guitar', gainDb: -5, muted: false, solo: true, outputChannelPair: 3 }]
+      }), '2026-08-01')
+    old.prepare("INSERT INTO settings(key, value_json, updated_at) VALUES ('app', ?, ?)")
+      .run(JSON.stringify({ debugMode: true }), '2026-08-01')
     old.close()
     const upgraded = new BandBuddyDatabase({ ...paths, databasePath: legacyPath } as AppPaths)
     try {
@@ -210,6 +336,11 @@ describe.skipIf(!hasTools)('real local video preprocessing and library lifecycle
       expect(song.title).toBe('已有音频')
       expect(song.videoUrl).toBeNull()
       expect(song.practice).toMatchObject({ positionMs: 12000, playbackRate: 0.8, loopEnabled: true, loopStartMs: 5000, loopEndMs: 15000 })
+      expect(song.practice.guitarSplitEnabled).toBe(false)
+      expect(song.practice.tracks).toHaveLength(9)
+      expect(song.practice.tracks.find((track) => track.stemType === 'guitar')).toMatchObject({ gainDb: -5, solo: true, outputChannelPair: 3 })
+      expect(song.practice.tracks.find((track) => track.stemType === 'lead_guitar')).toMatchObject({ gainDb: 0, muted: false, solo: false })
+      expect(upgraded.getSettings()).toMatchObject({ debugMode: true, highQualityStems: false })
     } finally { upgraded.close() }
   })
 })
