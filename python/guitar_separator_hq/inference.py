@@ -5,7 +5,7 @@ import gc
 import hashlib
 from pathlib import Path
 import time
-from typing import Callable
+from typing import Callable, Mapping
 
 import numpy as np
 import torch
@@ -13,11 +13,27 @@ import torch.nn.functional as torch_functional
 import yaml
 
 from ._vendor.msst import BSRoformer, MelBandRoformer
-from .specs import ModelSpec, config_path
+from .specs import GuitarQuality, ModelSpec, config_path
 
 
-HQ_BIG_SHIFTS = 2
-HQ_TTA_VARIANTS = ("identity", "channel_swap", "polarity")
+PassKey = tuple[str, int]
+HQ6_PASSES: tuple[PassKey, ...] = (
+    ("identity", 0),
+    ("identity", 1),
+    ("channel_swap", 0),
+    ("channel_swap", 1),
+    ("polarity", 0),
+    ("polarity", 1),
+)
+HQ3_PASSES: tuple[PassKey, ...] = (
+    ("identity", 0),
+    ("channel_swap", 0),
+    ("polarity", 0),
+)
+QUALITY_PASSES: Mapping[GuitarQuality, tuple[PassKey, ...]] = {
+    "high": HQ6_PASSES,
+    "balanced": HQ3_PASSES,
+}
 InferenceProgress = Callable[[float, str], None]
 
 
@@ -25,6 +41,7 @@ InferenceProgress = Callable[[float, str], None]
 class InferenceReport:
     architecture: str
     target: str
+    quality: str
     chunk_size: int
     overlap: int
     big_shifts: int
@@ -85,7 +102,7 @@ def _build_model(spec: ModelSpec, config: dict[str, object]) -> torch.nn.Module:
     kwargs = config.get("model")
     if not isinstance(kwargs, dict):
         raise RuntimeError(f"CONFIG_MODEL_MISSING:{spec.key}")
-    if spec.architecture == "bs_roformer":
+    if spec.architecture == "bs_roformer_shared":
         return BSRoformer(**kwargs)
     if spec.architecture == "mel_band_roformer":
         return MelBandRoformer(**kwargs)
@@ -101,7 +118,10 @@ def _checkpoint_state(path: Path) -> dict[str, torch.Tensor]:
         if isinstance(nested, dict):
             checkpoint = nested
             break
-    if not checkpoint or not all(isinstance(key, str) for key in checkpoint):
+    if not checkpoint or not all(
+        isinstance(key, str) and isinstance(value, torch.Tensor)
+        for key, value in checkpoint.items()
+    ):
         raise RuntimeError(f"CHECKPOINT_STATE_INVALID:{path}")
     return checkpoint
 
@@ -123,11 +143,14 @@ def _demix_once(
     use_amp: bool,
     device: torch.device,
     progress: InferenceProgress | None,
+    num_stems: int = 1,
 ) -> np.ndarray:
     if mix.ndim != 2 or mix.shape[0] != 2 or mix.shape[1] == 0:
         raise ValueError(f"EXPECTED_STEREO_CHANNEL_FIRST:{mix.shape}")
     if chunk_size <= 0 or overlap <= 0 or chunk_size // overlap <= 0:
         raise ValueError("INVALID_CHUNK_SETTINGS")
+    if num_stems <= 0:
+        raise ValueError("INVALID_STEM_COUNT")
 
     step = chunk_size // overlap
     border = chunk_size - step
@@ -138,8 +161,8 @@ def _demix_once(
         padded = torch_functional.pad(padded, (border, border), mode="reflect")
 
     window_template = _linear_window(chunk_size)
-    result = torch.zeros((1, 2, padded.shape[-1]), dtype=torch.float32)
-    counter = torch.zeros_like(result)
+    result = torch.zeros((num_stems, 2, padded.shape[-1]), dtype=torch.float32)
+    counter = torch.zeros(padded.shape[-1], dtype=torch.float32)
     starts = list(range(0, padded.shape[-1], step))
     amp_enabled = use_amp and device.type == "cuda"
 
@@ -160,7 +183,8 @@ def _demix_once(
                 predicted = model(part)
             if predicted.ndim == 3:
                 predicted = predicted.unsqueeze(1)
-            if predicted.ndim != 4 or predicted.shape[1] != 1 or predicted.shape[2] != 2:
+            expected = (1, num_stems, 2)
+            if predicted.ndim != 4 or tuple(predicted.shape[:3]) != expected:
                 raise RuntimeError(f"MODEL_OUTPUT_SHAPE_INVALID:{tuple(predicted.shape)}")
             predicted = predicted[0, :, :, :segment_length].float().cpu()
 
@@ -171,17 +195,18 @@ def _demix_once(
                 window[-chunk_size // 10 :] = 1.0
             weights = window[:segment_length]
             result[..., start : start + segment_length] += predicted * weights
-            counter[..., start : start + segment_length] += weights
+            counter[start : start + segment_length] += weights
             if progress:
                 progress((index + 1) / len(starts), "分块推理")
 
-    estimate = (result / counter.clamp_min_(1e-10)).numpy()[0]
+    estimate = (result / counter.clamp_min_(1e-10)[None, None]).numpy()
     if used_border:
-        estimate = estimate[:, border:-border]
-    estimate = estimate[:, :original_length]
+        estimate = estimate[..., border:-border]
+    estimate = estimate[..., :original_length]
     if not np.isfinite(estimate).all():
         raise RuntimeError("MODEL_OUTPUT_NON_FINITE")
-    return np.ascontiguousarray(estimate, dtype=np.float32)
+    estimate = np.ascontiguousarray(estimate, dtype=np.float32)
+    return estimate[0] if num_stems == 1 else estimate
 
 
 def _augment(mix: np.ndarray, variant: str) -> np.ndarray:
@@ -198,10 +223,56 @@ def _undo_augment(estimate: np.ndarray, variant: str) -> np.ndarray:
     if variant == "identity":
         return estimate
     if variant == "channel_swap":
-        return estimate[::-1].copy()
+        return np.flip(estimate, axis=-2).copy()
     if variant == "polarity":
         return -estimate
     raise ValueError(f"UNKNOWN_TTA_VARIANT:{variant}")
+
+
+def _predict_passes(
+    model: torch.nn.Module,
+    mix: np.ndarray,
+    *,
+    chunk_size: int,
+    overlap: int,
+    use_amp: bool,
+    device: torch.device,
+    passes: tuple[PassKey, ...],
+    num_stems: int,
+    progress: InferenceProgress | None,
+) -> np.ndarray:
+    shape = (num_stems, *mix.shape) if num_stems > 1 else mix.shape
+    accumulation = np.zeros(shape, dtype=np.float32)
+    shift_size = mix.shape[-1] // 2
+    policy_name = f"HQ{len(passes)}"
+
+    for pass_index, (variant, shift_index) in enumerate(passes):
+        augmented = _augment(mix, variant)
+        shift = shift_index * shift_size
+        shifted = np.roll(augmented, shift, axis=-1) if shift else augmented
+
+        def report_pass(fraction: float, message: str) -> None:
+            if progress:
+                progress(
+                    (pass_index + fraction) / len(passes),
+                    f"{policy_name} {variant} {shift_index + 1} · {message}",
+                )
+
+        estimate = _demix_once(
+            model,
+            shifted,
+            chunk_size=chunk_size,
+            overlap=overlap,
+            use_amp=use_amp,
+            device=device,
+            progress=report_pass,
+            num_stems=num_stems,
+        )
+        if shift:
+            estimate = np.roll(estimate, -shift, axis=-1)
+        accumulation += _undo_augment(estimate, variant)
+    accumulation /= float(len(passes))
+    return np.ascontiguousarray(accumulation, dtype=np.float32)
 
 
 def _high_quality_predict(
@@ -214,48 +285,31 @@ def _high_quality_predict(
     device: torch.device,
     progress: InferenceProgress | None,
 ) -> np.ndarray:
-    pass_count = len(HQ_TTA_VARIANTS) * HQ_BIG_SHIFTS
-    accumulation = np.zeros_like(mix, dtype=np.float32)
-    pass_index = 0
-    shift_size = mix.shape[-1] // HQ_BIG_SHIFTS
-
-    for variant in HQ_TTA_VARIANTS:
-        augmented = _augment(mix, variant)
-        for shift_index in range(HQ_BIG_SHIFTS):
-            shift = shift_index * shift_size
-            shifted = np.roll(augmented, shift, axis=-1) if shift else augmented
-
-            def report_pass(fraction: float, message: str) -> None:
-                if progress:
-                    progress(
-                        (pass_index + fraction) / pass_count,
-                        f"HQ6 {variant} {shift_index + 1}/{HQ_BIG_SHIFTS} · {message}",
-                    )
-
-            estimate = _demix_once(
-                model,
-                shifted,
-                chunk_size=chunk_size,
-                overlap=overlap,
-                use_amp=use_amp,
-                device=device,
-                progress=report_pass,
-            )
-            if shift:
-                estimate = np.roll(estimate, -shift, axis=-1)
-            accumulation += _undo_augment(estimate, variant)
-            pass_index += 1
-    accumulation /= float(pass_count)
-    return accumulation
+    return _predict_passes(
+        model,
+        mix,
+        chunk_size=chunk_size,
+        overlap=overlap,
+        use_amp=use_amp,
+        device=device,
+        passes=HQ6_PASSES,
+        num_stems=1,
+        progress=progress,
+    )
 
 
-def predict_model(
+def _run_roformer(
     mix: np.ndarray,
     spec: ModelSpec,
     checkpoint_path: Path,
     device: torch.device,
-    progress: InferenceProgress | None = None,
+    *,
+    quality: GuitarQuality,
+    num_stems: int,
+    progress: InferenceProgress | None,
 ) -> tuple[np.ndarray, InferenceReport]:
+    if quality == "fast":
+        raise ValueError("ROFORMER_FAST_POLICY_UNSUPPORTED")
     config = load_config(spec)
     inference = config.get("inference")
     audio = config.get("audio")
@@ -265,6 +319,7 @@ def predict_model(
     chunk_size = int(inference.get("chunk_size", audio["chunk_size"]))
     overlap = int(inference["num_overlap"])
     use_amp = bool(training.get("use_amp", True))
+    passes = QUALITY_PASSES[quality]
 
     model = _build_model(spec, config)
     parameters = sum(parameter.numel() for parameter in model.parameters())
@@ -275,20 +330,22 @@ def predict_model(
     state = _checkpoint_state(checkpoint_path)
     model.load_state_dict(state, strict=True)
     del state
-    model.eval().to(device)
+    model.eval().requires_grad_(False).to(device)
     if device.type == "cuda":
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(device)
 
     started = time.perf_counter()
     try:
-        estimate = _high_quality_predict(
+        estimate = _predict_passes(
             model,
             mix,
             chunk_size=chunk_size,
             overlap=overlap,
             use_amp=use_amp,
             device=device,
+            passes=passes,
+            num_stems=num_stems,
             progress=progress,
         )
         if device.type == "cuda":
@@ -304,17 +361,61 @@ def predict_model(
         if device.type == "cuda":
             torch.cuda.empty_cache()
 
+    variants = tuple(dict.fromkeys(variant for variant, _ in passes))
     report = InferenceReport(
         architecture=spec.architecture,
         target=spec.target,
+        quality=quality,
         chunk_size=chunk_size,
         overlap=overlap,
-        big_shifts=HQ_BIG_SHIFTS,
-        tta_variants=HQ_TTA_VARIANTS,
-        passes=len(HQ_TTA_VARIANTS) * HQ_BIG_SHIFTS,
+        big_shifts=2 if any(shift for _, shift in passes) else 1,
+        tta_variants=variants,
+        passes=len(passes),
         amp_enabled=use_amp and device.type == "cuda",
         parameters=parameters,
         seconds=seconds,
         peak_cuda_bytes=peak_cuda_bytes,
     )
     return estimate, report
+
+
+def predict_model(
+    mix: np.ndarray,
+    spec: ModelSpec,
+    checkpoint_path: Path,
+    device: torch.device,
+    progress: InferenceProgress | None = None,
+    *,
+    quality: GuitarQuality = "high",
+) -> tuple[np.ndarray, InferenceReport]:
+    return _run_roformer(
+        mix,
+        spec,
+        checkpoint_path,
+        device,
+        quality=quality,
+        num_stems=1,
+        progress=progress,
+    )
+
+
+def predict_shared_bs(
+    mix: np.ndarray,
+    spec: ModelSpec,
+    checkpoint_path: Path,
+    device: torch.device,
+    progress: InferenceProgress | None = None,
+    *,
+    quality: GuitarQuality = "high",
+) -> tuple[np.ndarray, InferenceReport]:
+    if spec.architecture != "bs_roformer_shared":
+        raise ValueError(f"EXPECTED_SHARED_BS_SPEC:{spec.key}")
+    return _run_roformer(
+        mix,
+        spec,
+        checkpoint_path,
+        device,
+        quality=quality,
+        num_stems=2,
+        progress=progress,
+    )

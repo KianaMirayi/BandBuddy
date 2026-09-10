@@ -154,6 +154,7 @@ export const appSettingsSchema = z.object({
   keepSource: z.boolean(),
   closeToTrayWhileWorking: z.boolean(),
   highQualityStems: z.boolean(),
+  guitarSeparationQuality: z.enum(['fast', 'balanced', 'high']),
   network: networkSettingsSchema
 })
 

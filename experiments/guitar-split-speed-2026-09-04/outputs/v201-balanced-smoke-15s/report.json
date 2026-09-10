@@ -1,0 +1,49 @@
+{
+  "input": "C:\\CloudMusic\\新裤子 - 没有理想的人不伤心.mp3",
+  "frames": 661500,
+  "duration_seconds": 15.0,
+  "quality": "balanced",
+  "elapsed_seconds": 13.08241390006151,
+  "reports": {
+    "shared_bs": {
+      "architecture": "bs_roformer_shared",
+      "target": "acoustic+electric",
+      "quality": "balanced",
+      "chunk_size": 882000,
+      "overlap": 2,
+      "big_shifts": 1,
+      "tta_variants": [
+        "identity",
+        "channel_swap",
+        "polarity"
+      ],
+      "passes": 3,
+      "amp_enabled": true,
+      "parameters": 51057684,
+      "seconds": 7.033837000024505,
+      "peak_cuda_bytes": 1190870528
+    },
+    "lead_hq": {
+      "architecture": "mel_band_roformer",
+      "target": "Lead",
+      "quality": "balanced",
+      "chunk_size": 132300,
+      "overlap": 2,
+      "big_shifts": 1,
+      "tta_variants": [
+        "identity",
+        "channel_swap",
+        "polarity"
+      ],
+      "passes": 3,
+      "amp_enabled": true,
+      "parameters": 84199748,
+      "seconds": 3.9567125000758097,
+      "peak_cuda_bytes": 551585792
+    }
+  },
+  "reconstruction": {
+    "rms": 9.113471434447247e-12,
+    "peak": 1.361115664622048e-10
+  }
+}

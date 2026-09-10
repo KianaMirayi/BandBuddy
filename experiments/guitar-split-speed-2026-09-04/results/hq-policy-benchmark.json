@@ -1,0 +1,478 @@
+{
+  "input": "C:\\Users\\zhaoj\\Documents\\BandBuddy\\.codex-tmp\\bd-analysis\\source-60s-15s.wav",
+  "frames": 661500,
+  "duration_seconds": 15.0,
+  "torch": "2.11.0+cu130",
+  "cuda": "13.0",
+  "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU",
+  "lead_batch": 8,
+  "models": {
+    "acoustic": {
+      "chunk_size": 882000,
+      "overlap": 2,
+      "batch_size": 1,
+      "pass_seconds": {
+        "identity:0": 3.272770500043407,
+        "identity:1": 2.8005166000220925,
+        "channel_swap:0": 2.8306575999595225,
+        "channel_swap:1": 2.842913900036365,
+        "polarity:0": 2.8361508999951184,
+        "polarity:1": 2.8230943999951705
+      },
+      "total_hq6_seconds": 17.406103900051676,
+      "peak_cuda_bytes": 1140857856,
+      "policy_vs_hq6": {
+        "hq6": {
+          "reference_rms": 0.04085001083241902,
+          "candidate_rms": 0.04085001083241902,
+          "difference_rms": 0.0,
+          "difference_peak": 0.0,
+          "difference_snr_db": Infinity,
+          "correlation": 1.0,
+          "one_second_snr_min_db": Infinity,
+          "one_second_snr_median_db": Infinity
+        },
+        "hq4_no_polarity": {
+          "reference_rms": 0.04085001083241902,
+          "candidate_rms": 0.04069374110312937,
+          "difference_rms": 0.0014069087563577463,
+          "difference_peak": 0.010361947119235992,
+          "difference_snr_db": 29.258524868266782,
+          "correlation": 0.9994119818157071,
+          "one_second_snr_min_db": 25.749831158268975,
+          "one_second_snr_median_db": 29.724345777280373
+        },
+        "tta3_no_bigshift": {
+          "reference_rms": 0.04085001083241902,
+          "candidate_rms": 0.04085786352416663,
+          "difference_rms": 0.003461355656673972,
+          "difference_peak": 0.03198697417974472,
+          "difference_snr_db": 21.43891900778297,
+          "correlation": 0.9964108435384272,
+          "one_second_snr_min_db": 15.918922175336661,
+          "one_second_snr_median_db": 21.551028791483084
+        },
+        "bigshift2_no_tta": {
+          "reference_rms": 0.04085001083241902,
+          "candidate_rms": 0.04094393950302421,
+          "difference_rms": 0.0024752615958204657,
+          "difference_peak": 0.022939510643482208,
+          "difference_snr_db": 24.351421446229487,
+          "correlation": 0.998171038404888,
+          "one_second_snr_min_db": 22.575354040701615,
+          "one_second_snr_median_db": 24.234667860498448
+        },
+        "single": {
+          "reference_rms": 0.04085001083241902,
+          "candidate_rms": 0.04083850153091885,
+          "difference_rms": 0.004357601604663043,
+          "difference_peak": 0.039349280297756195,
+          "difference_snr_db": 19.438893076819852,
+          "correlation": 0.9943088498375351,
+          "one_second_snr_min_db": 15.650092907797305,
+          "one_second_snr_median_db": 19.34085983776646
+        }
+      }
+    },
+    "electric": {
+      "chunk_size": 882000,
+      "overlap": 2,
+      "batch_size": 1,
+      "pass_seconds": {
+        "identity:0": 2.8626766999950632,
+        "identity:1": 2.8341797000030056,
+        "channel_swap:0": 2.8368919000495225,
+        "channel_swap:1": 2.901582199963741,
+        "polarity:0": 2.9112463999772444,
+        "polarity:1": 2.9158916000742465
+      },
+      "total_hq6_seconds": 17.262468500062823,
+      "peak_cuda_bytes": 1140857856,
+      "policy_vs_hq6": {
+        "hq6": {
+          "reference_rms": 0.08182206037214824,
+          "candidate_rms": 0.08182206037214824,
+          "difference_rms": 0.0,
+          "difference_peak": 0.0,
+          "difference_snr_db": Infinity,
+          "correlation": 1.0,
+          "one_second_snr_min_db": Infinity,
+          "one_second_snr_median_db": Infinity
+        },
+        "hq4_no_polarity": {
+          "reference_rms": 0.08182206037214824,
+          "candidate_rms": 0.08190019142836949,
+          "difference_rms": 0.0018026619479514629,
+          "difference_peak": 0.013344138860702515,
+          "difference_snr_db": 33.13912239874015,
+          "correlation": 0.9997579937092661,
+          "one_second_snr_min_db": 29.26845843762004,
+          "one_second_snr_median_db": 33.1947954489647
+        },
+        "tta3_no_bigshift": {
+          "reference_rms": 0.08182206037214824,
+          "candidate_rms": 0.08234767989149665,
+          "difference_rms": 0.004378761595819108,
+          "difference_peak": 0.04968125373125076,
+          "difference_snr_db": 25.43038221805535,
+          "correlation": 0.9985976789285461,
+          "one_second_snr_min_db": 16.43950677161724,
+          "one_second_snr_median_db": 27.890586650385018
+        },
+        "bigshift2_no_tta": {
+          "reference_rms": 0.08182206037214824,
+          "candidate_rms": 0.08200380580740728,
+          "difference_rms": 0.0028991375003334227,
+          "difference_peak": 0.019566766917705536,
+          "difference_snr_db": 29.01203195517619,
+          "correlation": 0.999376131462524,
+          "one_second_snr_min_db": 26.503461588667285,
+          "one_second_snr_median_db": 28.482078779011815
+        },
+        "single": {
+          "reference_rms": 0.08182206037214824,
+          "candidate_rms": 0.08250077778350712,
+          "difference_rms": 0.005457212084845515,
+          "difference_peak": 0.053236961364746094,
+          "difference_snr_db": 23.517991582658368,
+          "correlation": 0.9978282340632235,
+          "one_second_snr_min_db": 15.679847776008408,
+          "one_second_snr_median_db": 25.303870563788614
+        }
+      }
+    },
+    "lead": {
+      "chunk_size": 132300,
+      "overlap": 2,
+      "batch_size": 8,
+      "policy_seconds": {
+        "hq6": 8.229368100059219,
+        "hq4_no_polarity": 5.4450941000832245,
+        "tta3_no_bigshift": 4.154942100052722,
+        "bigshift2_no_tta": 2.7748152998974547,
+        "single": 1.4148329000454396
+      },
+      "peak_cuda_bytes": 1902410752,
+      "policy_vs_hq6_on_same_hq6_electric": {
+        "hq6": {
+          "reference_rms": 0.003378590043842637,
+          "candidate_rms": 0.003378590043842637,
+          "difference_rms": 0.0,
+          "difference_peak": 0.0,
+          "difference_snr_db": Infinity,
+          "correlation": 1.0,
+          "one_second_snr_min_db": Infinity,
+          "one_second_snr_median_db": Infinity
+        },
+        "hq4_no_polarity": {
+          "reference_rms": 0.003378590043842637,
+          "candidate_rms": 0.003412809164826796,
+          "difference_rms": 0.00033669434264907617,
+          "difference_peak": 0.011706430464982986,
+          "difference_snr_db": 20.02999357543535,
+          "correlation": 0.995134976935027,
+          "one_second_snr_min_db": 16.65912663634749,
+          "one_second_snr_median_db": 19.801654049624545
+        },
+        "tta3_no_bigshift": {
+          "reference_rms": 0.003378590043842637,
+          "candidate_rms": 0.0033593006168238224,
+          "difference_rms": 0.00022311323223605584,
+          "difference_peak": 0.013432353734970093,
+          "difference_snr_db": 23.60420340129182,
+          "correlation": 0.9978234035231842,
+          "one_second_snr_min_db": 15.202501703946496,
+          "one_second_snr_median_db": 69.84108821813957
+        },
+        "bigshift2_no_tta": {
+          "reference_rms": 0.003378590043842637,
+          "candidate_rms": 0.0033864122305922767,
+          "difference_rms": 0.0007243095341649573,
+          "difference_peak": 0.023660048842430115,
+          "difference_snr_db": 13.37622592054734,
+          "correlation": 0.977075892742673,
+          "one_second_snr_min_db": 9.570284547970259,
+          "one_second_snr_median_db": 13.269175237635567
+        },
+        "single": {
+          "reference_rms": 0.003378590043842637,
+          "candidate_rms": 0.0033655410811399443,
+          "difference_rms": 0.0007966476210417388,
+          "difference_peak": 0.028836674988269806,
+          "difference_snr_db": 12.549384686989677,
+          "correlation": 0.9721005526257581,
+          "one_second_snr_min_db": 6.9841148285176,
+          "one_second_snr_median_db": 13.265351946479045
+        }
+      }
+    }
+  },
+  "full_policies": {
+    "hq6": {
+      "passes_per_model": 6,
+      "seconds": {
+        "acoustic": 17.406103900051676,
+        "electric": 17.262468500062823,
+        "lead": 8.229368100059219,
+        "total": 42.89794050017372
+      },
+      "speedup_vs_original_hq6_manifest": 0.9524635943733698,
+      "outputs_vs_original_hq6": {
+        "acoustic": {
+          "reference_rms": 0.04085001083241902,
+          "candidate_rms": 0.04085001083241902,
+          "difference_rms": 0.0,
+          "difference_peak": 0.0,
+          "difference_snr_db": Infinity,
+          "correlation": 1.0,
+          "one_second_snr_min_db": Infinity,
+          "one_second_snr_median_db": Infinity
+        },
+        "electric": {
+          "reference_rms": 0.08182206037176905,
+          "candidate_rms": 0.08182206037214824,
+          "difference_rms": 6.056491431418225e-10,
+          "difference_peak": 5.960464477539063e-08,
+          "difference_snr_db": 162.61298608393048,
+          "correlation": 0.9999999999999998,
+          "one_second_snr_min_db": 160.5269411003111,
+          "one_second_snr_median_db": 162.69927254843896
+        },
+        "lead": {
+          "reference_rms": 0.003417695595372152,
+          "candidate_rms": 0.003378590043842637,
+          "difference_rms": 6.796604782108847e-05,
+          "difference_peak": 0.00231991708278656,
+          "difference_snr_db": 34.02882723952211,
+          "correlation": 0.999866192883278,
+          "one_second_snr_min_db": 29.020163963912648,
+          "one_second_snr_median_db": 32.78188122890626
+        },
+        "rhythm": {
+          "reference_rms": 0.08163711594320956,
+          "candidate_rms": 0.08164077501247054,
+          "difference_rms": 6.796604783546769e-05,
+          "difference_peak": 0.00231991708278656,
+          "difference_snr_db": 61.59191273677703,
+          "correlation": 0.9999996544597133,
+          "one_second_snr_min_db": 54.674648021473715,
+          "one_second_snr_median_db": 63.59578700420734
+        }
+      }
+    },
+    "hq4_no_polarity": {
+      "passes_per_model": 4,
+      "seconds": {
+        "acoustic": 11.746858600061387,
+        "electric": 11.435330500011332,
+        "lead": 5.4450941000832245,
+        "total": 28.627283200155944
+      },
+      "speedup_vs_original_hq6_manifest": 1.4272652530222583,
+      "outputs_vs_original_hq6": {
+        "acoustic": {
+          "reference_rms": 0.04085001083241902,
+          "candidate_rms": 0.04069374110312937,
+          "difference_rms": 0.0014069087563577463,
+          "difference_peak": 0.010361947119235992,
+          "difference_snr_db": 29.258524868266782,
+          "correlation": 0.9994119818157071,
+          "one_second_snr_min_db": 25.749831158268975,
+          "one_second_snr_median_db": 29.724345777280373
+        },
+        "electric": {
+          "reference_rms": 0.08182206037176905,
+          "candidate_rms": 0.08190019142836949,
+          "difference_rms": 0.0018026619479459456,
+          "difference_peak": 0.013344138860702515,
+          "difference_snr_db": 33.13912239872647,
+          "correlation": 0.999757993709271,
+          "one_second_snr_min_db": 29.268458447875215,
+          "one_second_snr_median_db": 33.19479543353789
+        },
+        "lead": {
+          "reference_rms": 0.003417695595372152,
+          "candidate_rms": 0.0033419527676918468,
+          "difference_rms": 0.0003973775246751866,
+          "difference_peak": 0.011372558772563934,
+          "difference_snr_db": 18.69060157108982,
+          "correlation": 0.9933385182626637,
+          "one_second_snr_min_db": 15.637126733599507,
+          "one_second_snr_median_db": 18.109991752810043
+        },
+        "rhythm": {
+          "reference_rms": 0.08163711594320956,
+          "candidate_rms": 0.08172554905935213,
+          "difference_rms": 0.001836837275717669,
+          "difference_peak": 0.013309940695762634,
+          "difference_snr_db": 32.9563393906514,
+          "correlation": 0.9997477343800231,
+          "one_second_snr_min_db": 29.238155831166157,
+          "one_second_snr_median_db": 32.60448612490633
+        }
+      }
+    },
+    "tta3_no_bigshift": {
+      "passes_per_model": 3,
+      "seconds": {
+        "acoustic": 8.939578999998048,
+        "electric": 8.61081500002183,
+        "lead": 4.154942100052722,
+        "total": 21.7053361000726
+      },
+      "speedup_vs_original_hq6_manifest": 1.8824277316707272,
+      "outputs_vs_original_hq6": {
+        "acoustic": {
+          "reference_rms": 0.04085001083241902,
+          "candidate_rms": 0.04085786352416663,
+          "difference_rms": 0.003461355656673972,
+          "difference_peak": 0.03198697417974472,
+          "difference_snr_db": 21.43891900778297,
+          "correlation": 0.9964108435384272,
+          "one_second_snr_min_db": 15.918922175336661,
+          "one_second_snr_median_db": 21.551028791483084
+        },
+        "electric": {
+          "reference_rms": 0.08182206037176905,
+          "candidate_rms": 0.08234767989149665,
+          "difference_rms": 0.004378761595609426,
+          "difference_peak": 0.04968125373125076,
+          "difference_snr_db": 25.43038221843103,
+          "correlation": 0.9985976789287055,
+          "one_second_snr_min_db": 16.439506773034424,
+          "one_second_snr_median_db": 27.89058665024335
+        },
+        "lead": {
+          "reference_rms": 0.003417695595372152,
+          "candidate_rms": 0.003457037251993111,
+          "difference_rms": 0.00048624261594363053,
+          "difference_peak": 0.018969953060150146,
+          "difference_snr_db": 16.93760718996088,
+          "correlation": 0.9900600038954704,
+          "one_second_snr_min_db": 11.483212537709036,
+          "one_second_snr_median_db": 16.58968588628886
+        },
+        "rhythm": {
+          "reference_rms": 0.08163711594320956,
+          "candidate_rms": 0.08215758933934408,
+          "difference_rms": 0.004383806938330963,
+          "difference_peak": 0.05002105236053467,
+          "difference_snr_db": 25.40072467951447,
+          "correlation": 0.9985875530191082,
+          "one_second_snr_min_db": 16.399746535713447,
+          "one_second_snr_median_db": 27.885381090263067
+        }
+      }
+    },
+    "bigshift2_no_tta": {
+      "passes_per_model": 2,
+      "seconds": {
+        "acoustic": 6.0732871000654995,
+        "electric": 5.696856399998069,
+        "lead": 2.7748152998974547,
+        "total": 14.544958799961023
+      },
+      "speedup_vs_original_hq6_manifest": 2.8091331960403974,
+      "outputs_vs_original_hq6": {
+        "acoustic": {
+          "reference_rms": 0.04085001083241902,
+          "candidate_rms": 0.04094393950302421,
+          "difference_rms": 0.0024752615958204657,
+          "difference_peak": 0.022939510643482208,
+          "difference_snr_db": 24.351421446229487,
+          "correlation": 0.998171038404888,
+          "one_second_snr_min_db": 22.575354040701615,
+          "one_second_snr_median_db": 24.234667860498448
+        },
+        "electric": {
+          "reference_rms": 0.08182206037176905,
+          "candidate_rms": 0.08200380580740728,
+          "difference_rms": 0.002899137499640435,
+          "difference_peak": 0.019566766917705536,
+          "difference_snr_db": 29.012031957212145,
+          "correlation": 0.9993761314628306,
+          "one_second_snr_min_db": 26.503461581249823,
+          "one_second_snr_median_db": 28.48207878688815
+        },
+        "lead": {
+          "reference_rms": 0.003417695595372152,
+          "candidate_rms": 0.003664580230701488,
+          "difference_rms": 0.0010568599849837196,
+          "difference_peak": 0.0388496071100235,
+          "difference_snr_db": 10.194318476564375,
+          "correlation": 0.9578423180927115,
+          "one_second_snr_min_db": 5.921935560005296,
+          "one_second_snr_median_db": 10.322713687241407
+        },
+        "rhythm": {
+          "reference_rms": 0.08163711594320956,
+          "candidate_rms": 0.08178720618633008,
+          "difference_rms": 0.0030762446626875955,
+          "difference_peak": 0.041356608271598816,
+          "difference_snr_db": 28.47733560910594,
+          "correlation": 0.9992930256367751,
+          "one_second_snr_min_db": 26.282894659650523,
+          "one_second_snr_median_db": 27.72772681051466
+        }
+      }
+    },
+    "single": {
+      "passes_per_model": 1,
+      "seconds": {
+        "acoustic": 3.272770500043407,
+        "electric": 2.8626766999950632,
+        "lead": 1.4148329000454396,
+        "total": 7.55028010008391
+      },
+      "speedup_vs_original_hq6_manifest": 5.41155110252881,
+      "outputs_vs_original_hq6": {
+        "acoustic": {
+          "reference_rms": 0.04085001083241902,
+          "candidate_rms": 0.04083850153091885,
+          "difference_rms": 0.004357601604663043,
+          "difference_peak": 0.039349280297756195,
+          "difference_snr_db": 19.438893076819852,
+          "correlation": 0.9943088498375351,
+          "one_second_snr_min_db": 15.650092907797305,
+          "one_second_snr_median_db": 19.34085983776646
+        },
+        "electric": {
+          "reference_rms": 0.08182206037176905,
+          "candidate_rms": 0.08250077778350712,
+          "difference_rms": 0.005457212084007746,
+          "difference_peak": 0.053236961364746094,
+          "difference_snr_db": 23.51799158395153,
+          "correlation": 0.9978282340639288,
+          "one_second_snr_min_db": 15.679847776934446,
+          "one_second_snr_median_db": 25.303870557671196
+        },
+        "lead": {
+          "reference_rms": 0.003417695595372152,
+          "candidate_rms": 0.0038189465083069704,
+          "difference_rms": 0.0013672567588890365,
+          "difference_peak": 0.04444028437137604,
+          "difference_snr_db": 7.957665995330787,
+          "correlation": 0.9345545055654326,
+          "one_second_snr_min_db": 3.4316847169157483,
+          "one_second_snr_median_db": 7.778731940131632
+        },
+        "rhythm": {
+          "reference_rms": 0.08163711594320956,
+          "candidate_rms": 0.0822639656329423,
+          "difference_rms": 0.005588493974400419,
+          "difference_peak": 0.054382070899009705,
+          "difference_snr_db": 23.291857333147888,
+          "correlation": 0.9977040444199088,
+          "one_second_snr_min_db": 15.630483511745776,
+          "one_second_snr_median_db": 24.22898506561439
+        }
+      }
+    }
+  },
+  "original_hq6_manifest_seconds": {
+    "acoustic": 15.799791799974628,
+    "electric": 15.615065400023013,
+    "lead": 9.443869400012773,
+    "total": 40.858726600010414
+  }
+}

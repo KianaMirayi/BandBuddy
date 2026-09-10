@@ -9,10 +9,11 @@ from .separator import (
     validate_audio_array,
     write_float_wav,
 )
-from .specs import MODEL_SET_REVISION
+from .specs import GuitarQuality, MODEL_SET_REVISION
 
 __all__ = [
     "GuitarArrayResult",
+    "GuitarQuality",
     "MODEL_SET_REVISION",
     "SeparationResult",
     "load_audio",
@@ -21,4 +22,4 @@ __all__ = [
     "validate_audio_array",
     "write_float_wav",
 ]
-__version__ = "2.0.0"
+__version__ = "2.0.1"

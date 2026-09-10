@@ -91,6 +91,15 @@ def make_separator(
 def command_probe(args: argparse.Namespace) -> None:
     import torch
 
+    try:
+        import onnxruntime as ort
+
+        onnxruntime_version: str | None = ort.__version__
+        onnxruntime_providers: list[str] = ort.get_available_providers()
+    except (ImportError, OSError):
+        onnxruntime_version = None
+        onnxruntime_providers = []
+
     model_root = Path(args.model_root).resolve()
     model_ready = False
     repository = None
@@ -140,6 +149,8 @@ def command_probe(args: argparse.Namespace) -> None:
         cudaAvailable=cuda_available,
         mpsAvailable=mps_available,
         demucsVersion=importlib.metadata.version("demucs"),
+        onnxRuntimeVersion=onnxruntime_version,
+        onnxRuntimeProviders=onnxruntime_providers,
         modelReady=model_ready,
         selfTest=self_test,
     )
@@ -236,7 +247,7 @@ def command_separate_guitar(args: argparse.Namespace) -> None:
         validate_audio_array,
         write_float_wav,
     )
-    from guitar_separator_hq.specs import MODEL_SPECS
+    from guitar_separator_hq.specs import model_specs_for_quality, normalize_quality
 
     input_path = Path(args.input).resolve()
     output_root = Path(args.output).resolve()
@@ -251,18 +262,25 @@ def command_separate_guitar(args: argparse.Namespace) -> None:
     ):
         raise RuntimeError("MPS_NOT_AVAILABLE")
 
-    bundle = verified_bundle(
-        model_root,
-        ("acoustic_guitar", "electric_guitar", "lead_rhythm_guitar"),
+    quality = normalize_quality(args.quality)
+    required_bundle_keys = (
+        ("acoustic_guitar_fast", "electric_guitar_fast", "lead_rhythm_fast")
+        if quality == "fast"
+        else ("shared_acoustic_electric", "lead_rhythm_hq")
     )
+    bundle = verified_bundle(model_root, required_bundle_keys)
     emit("progress", stage="preparing", progress=0.0, message="正在解码")
     mix = load_audio(input_path)
     expected_frames = mix.shape[-1]
-    stage_ranges = {
-        "acoustic": (0.0, 0.33),
-        "electric": (0.33, 0.34),
-        "lead": (0.67, 0.32),
-    }
+    stage_ranges = (
+        {
+            "acoustic_fast": (0.0, 0.33),
+            "electric_fast": (0.33, 0.34),
+            "lead_fast": (0.67, 0.32),
+        }
+        if quality == "fast"
+        else {"shared_bs": (0.0, 0.66), "lead_hq": (0.66, 0.33)}
+    )
 
     def guitar_progress(stage: str, fraction: float, message: str) -> None:
         start, span = stage_ranges.get(stage, (0.0, 0.0))
@@ -270,10 +288,12 @@ def command_separate_guitar(args: argparse.Namespace) -> None:
             "progress",
             stage="separating",
             progress=min(0.99, start + span * fraction),
-            message="正在细分吉他轨",
+            message="正在极速细分吉他轨（预览质量）" if quality == "fast" else "正在细分吉他轨",
         )
 
-    weights = {spec.key: bundle / spec.filename for spec in MODEL_SPECS}
+    weights = {
+        spec.key: bundle / spec.filename for spec in model_specs_for_quality(quality)
+    }
     guitar = separate_guitar_arrays(
         mix,
         bundle,
@@ -281,6 +301,7 @@ def command_separate_guitar(args: argparse.Namespace) -> None:
         download_missing=False,
         weights=weights,
         progress=guitar_progress,
+        quality=quality,
     )
     if guitar.reconstruction["peak"] > 1e-6:
         raise RuntimeError(
@@ -311,6 +332,9 @@ def command_separate_guitar(args: argparse.Namespace) -> None:
         frames=expected_frames,
         device=args.device,
         reconstruction=guitar.reconstruction,
+        quality=quality,
+        previewQuality=quality == "fast",
+        inference=guitar.reports,
     )
 
 
@@ -326,7 +350,7 @@ def command_separate(args: argparse.Namespace) -> None:
         validate_audio_array,
         write_float_wav,
     )
-    from guitar_separator_hq.specs import MODEL_SPECS
+    from guitar_separator_hq.specs import model_specs_for_quality, normalize_quality
 
     input_path = Path(args.input).resolve()
     output_root = Path(args.output).resolve()
@@ -341,6 +365,7 @@ def command_separate(args: argparse.Namespace) -> None:
     ):
         raise RuntimeError("MPS_NOT_AVAILABLE")
 
+    quality = normalize_quality(args.quality)
     bundle = verified_bundle(model_root)
     emit("progress", stage="preparing", progress=0.0, message="正在解码")
     mix = load_audio(input_path)
@@ -380,11 +405,15 @@ def command_separate(args: argparse.Namespace) -> None:
     if args.device == "cuda":
         torch.cuda.empty_cache()
 
-    stage_ranges = {
-        "acoustic": (0.24, 0.25),
-        "electric": (0.49, 0.25),
-        "lead": (0.74, 0.25),
-    }
+    stage_ranges = (
+        {
+            "acoustic_fast": (0.24, 0.25),
+            "electric_fast": (0.49, 0.25),
+            "lead_fast": (0.74, 0.25),
+        }
+        if quality == "fast"
+        else {"shared_bs": (0.24, 0.5), "lead_hq": (0.74, 0.25)}
+    )
 
     def guitar_progress(stage: str, fraction: float, message: str) -> None:
         start, span = stage_ranges.get(stage, (0.24, 0.0))
@@ -395,7 +424,9 @@ def command_separate(args: argparse.Namespace) -> None:
             message="正在分轨",
         )
 
-    weights = {spec.key: bundle / spec.filename for spec in MODEL_SPECS}
+    weights = {
+        spec.key: bundle / spec.filename for spec in model_specs_for_quality(quality)
+    }
     guitar = separate_guitar_arrays(
         mix,
         bundle,
@@ -403,6 +434,7 @@ def command_separate(args: argparse.Namespace) -> None:
         download_missing=False,
         weights=weights,
         progress=guitar_progress,
+        quality=quality,
     )
     if guitar.reconstruction["peak"] > 1e-6:
         raise RuntimeError(
@@ -439,6 +471,9 @@ def command_separate(args: argparse.Namespace) -> None:
         frames=expected_frames,
         device=args.device,
         reconstruction=guitar.reconstruction,
+        quality=quality,
+        previewQuality=quality == "fast",
+        inference=guitar.reports,
     )
 
 
@@ -459,6 +494,12 @@ def parser() -> argparse.ArgumentParser:
         separate.add_argument("--output", required=True)
         separate.add_argument("--model-root", required=True)
         separate.add_argument("--device", choices=("cuda", "mps", "cpu"), required=True)
+        separate.add_argument(
+            "--quality",
+            choices=("fast", "balanced", "high"),
+            default="high",
+            help="Guitar split policy; old queued commands retain the v2.0 HQ6 default.",
+        )
     return root
 
 

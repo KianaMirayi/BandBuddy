@@ -1,0 +1,41 @@
+{
+  "tensors": 699,
+  "total_numel": 38693580,
+  "identical_tensors": 451,
+  "identical_numel": 26328772,
+  "identical_fraction": 0.680442905515592,
+  "groups": {
+    "layers": {
+      "tensors": 264,
+      "numel": 25258944,
+      "identical_tensors": 264,
+      "identical_numel": 25258944,
+      "relative_l2_difference": 0.0,
+      "identical_fraction": 1.0
+    },
+    "final_norm": {
+      "tensors": 1,
+      "numel": 256,
+      "identical_tensors": 1,
+      "identical_numel": 256,
+      "relative_l2_difference": 0.0,
+      "identical_fraction": 1.0
+    },
+    "band_split": {
+      "tensors": 186,
+      "numel": 1069572,
+      "identical_tensors": 186,
+      "identical_numel": 1069572,
+      "relative_l2_difference": 0.0,
+      "identical_fraction": 1.0
+    },
+    "mask_estimators": {
+      "tensors": 248,
+      "numel": 12364808,
+      "identical_tensors": 0,
+      "identical_numel": 0,
+      "relative_l2_difference": 1.2685752557833345,
+      "identical_fraction": 0.0
+    }
+  }
+}

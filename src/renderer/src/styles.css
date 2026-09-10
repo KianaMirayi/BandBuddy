@@ -499,6 +499,17 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 12px; heigh
 .settings-section label.settings-toggle { min-width: 0; flex: 1; display: flex; align-items: center; gap: 10px; margin: 0; padding: 10px 12px; color: #5e574f; border: 1px solid var(--border); border-radius: 9px; background: rgba(255,255,255,.4); }
 .settings-toggle input { width: 16px; height: 16px; flex: 0 0 auto; padding: 0; accent-color: #6d886e; }
 .settings-toggle span { min-width: 0; display: grid; gap: 2px; }.settings-toggle b { font-size: 10px; }.settings-toggle small { color: var(--muted); font-size: 8px; line-height: 1.4; }
+.guitar-quality-setting { margin: 0 0 10px; padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: rgba(255,255,255,.4); }
+.guitar-quality-setting header { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.guitar-quality-setting header span { display: grid; gap: 2px; }
+.guitar-quality-setting header b { color: #5e574f; font-size: 10px; }
+.guitar-quality-setting header small, .guitar-quality-setting p { color: var(--muted); font-size: 8px; line-height: 1.45; }
+.guitar-quality-setting header strong { flex: 0 0 auto; padding: 3px 7px; border-radius: 999px; color: #35553a; background: #e2eee2; font-size: 9px; }
+.settings-section .guitar-quality-setting input[type="range"] { width: 100%; height: 22px; margin: 8px 0 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.settings-section .guitar-quality-setting input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(90deg, #66816b, #b39c62); }
+.settings-section .guitar-quality-setting input[type="range"]::-webkit-slider-thumb { width: 14px; height: 14px; margin-top: -5px; background: #4f684f; box-shadow: 0 0 0 3px #f6f2eb; }
+.guitar-quality-labels { display: flex; justify-content: space-between; color: #71685e; font-size: 8px; }
+.guitar-quality-setting p { min-height: 24px; margin: 8px 0 0; }
 .security-note { display: flex; gap: 5px; align-items: center; color: #8b8278; font-size: 9px; line-height: 1.5; }
 
 .export-dialog fieldset { margin: 17px 0 0; padding: 13px; border: 1px solid var(--border); border-radius: 10px; }.export-dialog legend { padding: 0 6px; color: #6e655b; font-size: 10px; }

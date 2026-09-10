@@ -1,0 +1,45 @@
+{
+  "model": "lead",
+  "chunk_size": 132300,
+  "amp": true,
+  "torch": "2.11.0+cu130",
+  "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU",
+  "trials": [
+    {
+      "scope": "per_chunk",
+      "iterations": 30,
+      "seconds": 3.5137245000805706,
+      "seconds_per_forward": 0.11712415000268568,
+      "peak_cuda_bytes": 551690240,
+      "difference_rms_vs_first": 0.0,
+      "difference_peak_vs_first": 0.0
+    },
+    {
+      "scope": "outer",
+      "iterations": 30,
+      "seconds": 3.479243400041014,
+      "seconds_per_forward": 0.11597478000136713,
+      "peak_cuda_bytes": 551690240,
+      "difference_rms_vs_first": 0.0,
+      "difference_peak_vs_first": 0.0
+    },
+    {
+      "scope": "outer_no_cache",
+      "iterations": 30,
+      "seconds": 3.537344399956055,
+      "seconds_per_forward": 0.11791147999853517,
+      "peak_cuda_bytes": 551690240,
+      "difference_rms_vs_first": 0.0,
+      "difference_peak_vs_first": 0.0
+    },
+    {
+      "scope": "per_chunk",
+      "iterations": 30,
+      "seconds": 3.502028299961239,
+      "seconds_per_forward": 0.11673427666537464,
+      "peak_cuda_bytes": 551690240,
+      "difference_rms_vs_first": 0.0,
+      "difference_peak_vs_first": 0.0
+    }
+  ]
+}

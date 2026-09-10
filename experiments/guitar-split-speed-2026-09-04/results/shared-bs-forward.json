@@ -1,0 +1,25 @@
+{
+  "iterations": 3,
+  "chunk_size": 882000,
+  "separate_seconds": 8.483708400046453,
+  "combined_seconds": 4.379502999945544,
+  "speedup": 1.9371395339041764,
+  "separate_peak_cuda_bytes": 1515190784,
+  "combined_peak_cuda_bytes": 1500969472,
+  "combined_parameters": 51057684,
+  "separate_parameters": 77385752,
+  "outputs": {
+    "acoustic": {
+      "difference_rms": 0.0,
+      "difference_peak": 0.0,
+      "difference_snr_db": Infinity
+    },
+    "electric": {
+      "difference_rms": 0.0,
+      "difference_peak": 0.0,
+      "difference_snr_db": Infinity
+    }
+  },
+  "torch": "2.11.0+cu130",
+  "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU"
+}

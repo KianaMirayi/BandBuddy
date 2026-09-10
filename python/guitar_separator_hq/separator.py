@@ -14,9 +14,22 @@ import numpy as np
 import soundfile as sf
 import torch
 
-from .inference import predict_model, resolve_device
+from .fast_inference import predict_htdemucs, predict_mdx
+from .inference import predict_model, predict_shared_bs, resolve_device
 from .model_store import ensure_models, sha256_file
-from .specs import MODEL_BY_KEY, MODEL_SET_REVISION, MODEL_SPECS, MSST_SOURCE_COMMIT
+from .specs import (
+    ACOUSTIC_FAST_SPEC,
+    ELECTRIC_FAST_SPEC,
+    GuitarQuality,
+    LEAD_FAST_SPEC,
+    LEAD_HQ_SPEC,
+    MODEL_BY_KEY,
+    MODEL_SET_REVISION,
+    MSST_SOURCE_COMMIT,
+    SHARED_BS_SPEC,
+    model_specs_for_quality,
+    normalize_quality,
+)
 
 
 SAMPLE_RATE = 44_100
@@ -36,6 +49,7 @@ class GuitarArrayResult:
     electric_guitar: np.ndarray
     reports: dict[str, dict[str, object]]
     reconstruction: dict[str, float]
+    quality: GuitarQuality
 
     @property
     def stems(self) -> dict[str, np.ndarray]:
@@ -128,20 +142,23 @@ def separate_guitar_arrays(
     download_missing: bool = True,
     weights: Mapping[str, Path] | None = None,
     progress: ProgressCallback | None = None,
+    quality: GuitarQuality | str = "high",
 ) -> GuitarArrayResult:
-    """Run the fixed HQ6 chain without decoding or quantizing the input."""
+    """Run one pinned guitar policy without decoding or quantizing the input."""
 
     mix = validate_audio_array(mix, name="input")
+    selected_quality = normalize_quality(quality)
+    selected_specs = model_specs_for_quality(selected_quality)
     model_root = model_root.expanduser().resolve()
     if weights is None:
         _emit(progress, "models", 0.0, "正在校验分轨资源")
 
         def model_progress(key: str, fraction: float, message: str) -> None:
-            model_index = next(index for index, spec in enumerate(MODEL_SPECS) if spec.key == key)
+            model_index = next(index for index, spec in enumerate(selected_specs) if spec.key == key)
             _emit(
                 progress,
                 "models",
-                (model_index + fraction) / len(MODEL_SPECS),
+                (model_index + fraction) / len(selected_specs),
                 "正在准备分轨资源",
             )
 
@@ -149,17 +166,18 @@ def separate_guitar_arrays(
             model_root,
             download_missing=download_missing,
             callback=model_progress,
+            specs=selected_specs,
         )
     else:
         resolved_weights = {key: Path(path).resolve() for key, path in weights.items()}
-        missing = sorted(set(MODEL_BY_KEY) - set(resolved_weights))
+        missing = sorted({spec.key for spec in selected_specs} - set(resolved_weights))
         if missing:
             raise RuntimeError(f"MODEL_PATHS_MISSING:{','.join(missing)}")
 
     device = resolve_device(device_name)
     reports: dict[str, dict[str, object]] = {}
 
-    def infer(key: str, source: np.ndarray) -> np.ndarray:
+    def infer_hq(key: str, source: np.ndarray) -> np.ndarray:
         spec = MODEL_BY_KEY[key]
 
         def model_inference_progress(fraction: float, message: str) -> None:
@@ -171,13 +189,66 @@ def separate_guitar_arrays(
             resolved_weights[key],
             device,
             model_inference_progress,
+            quality=selected_quality,
         )
         reports[key] = report.to_dict()
         return validate_audio_array(estimate, name=key, frames=mix.shape[-1])
 
-    acoustic = infer("acoustic", mix)
-    electric = infer("electric", mix)
-    lead = infer("lead", electric)
+    if selected_quality == "fast":
+        def infer_mdx(key: str) -> np.ndarray:
+            spec = MODEL_BY_KEY[key]
+
+            def model_inference_progress(fraction: float, message: str) -> None:
+                _emit(progress, key, fraction, "正在进行极速分轨（预览质量）")
+
+            estimate, report = predict_mdx(
+                mix,
+                spec,
+                resolved_weights[key],
+                device,
+                model_inference_progress,
+            )
+            reports[key] = report.to_dict()
+            return validate_audio_array(estimate, name=key, frames=mix.shape[-1])
+
+        acoustic = infer_mdx(ACOUSTIC_FAST_SPEC.key)
+        electric = infer_mdx(ELECTRIC_FAST_SPEC.key)
+
+        def lead_progress(fraction: float, message: str) -> None:
+            _emit(progress, LEAD_FAST_SPEC.key, fraction, "正在进行极速分轨（预览质量）")
+
+        lead, report = predict_htdemucs(
+            electric,
+            LEAD_FAST_SPEC,
+            resolved_weights[LEAD_FAST_SPEC.key],
+            device,
+            lead_progress,
+        )
+        reports[LEAD_FAST_SPEC.key] = report.to_dict()
+        lead = validate_audio_array(lead, name=LEAD_FAST_SPEC.key, frames=mix.shape[-1])
+    else:
+        def shared_progress(fraction: float, message: str) -> None:
+            _emit(progress, SHARED_BS_SPEC.key, fraction, "正在分轨")
+
+        shared, shared_report = predict_shared_bs(
+            mix,
+            SHARED_BS_SPEC,
+            resolved_weights[SHARED_BS_SPEC.key],
+            device,
+            shared_progress,
+            quality=selected_quality,
+        )
+        if shared.shape != (2, 2, mix.shape[-1]):
+            raise RuntimeError(f"SHARED_MODEL_OUTPUT_INVALID:{shared.shape}")
+        reports[SHARED_BS_SPEC.key] = shared_report.to_dict()
+        acoustic = validate_audio_array(
+            shared[0], name="acoustic", frames=mix.shape[-1]
+        )
+        electric = validate_audio_array(
+            shared[1], name="electric", frames=mix.shape[-1]
+        )
+        lead = infer_hq(LEAD_HQ_SPEC.key, electric)
+
     rhythm = np.subtract(electric, lead, dtype=np.float32)
     rhythm = validate_audio_array(rhythm, name="rhythm", frames=mix.shape[-1])
     reconstruction_error = (
@@ -194,6 +265,7 @@ def separate_guitar_arrays(
         electric_guitar=electric,
         reports=reports,
         reconstruction=reconstruction,
+        quality=selected_quality,
     )
 
 
@@ -206,6 +278,7 @@ def separate_guitars(
     download_missing: bool = True,
     overwrite: bool = False,
     progress: ProgressCallback | None = None,
+    quality: GuitarQuality | str = "high",
 ) -> SeparationResult:
     """Standalone, auditable three-stem entry point used by QA tooling."""
 
@@ -230,6 +303,7 @@ def separate_guitars(
         device_name=device_name,
         download_missing=download_missing,
         progress=progress,
+        quality=quality,
     )
     _emit(progress, "write", 0.0, "正在写入浮点中间轨")
     for index, (key, audio) in enumerate(arrays.stems.items()):
@@ -241,7 +315,7 @@ def separate_guitars(
         for key, audio in arrays.stems.items()
     }
     manifest = {
-        "schema": 2,
+        "schema": 3,
         "pipeline": MODEL_SET_REVISION,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "input": {
@@ -259,7 +333,10 @@ def separate_guitars(
             "elapsed_seconds": time.perf_counter() - started,
         },
         "quality_policy": {
-            "only_mode": "HQ6",
+            "selected": arrays.quality,
+            "passes": 3 if arrays.quality == "balanced" else 6 if arrays.quality == "high" else 1,
+            "fast_mode_is_preview_quality": arrays.quality == "fast",
+            "shared_bs_roformer_trunk": arrays.quality != "fast",
             "uncompressed_float_audio_path": True,
             "host_audio_and_overlap_add": "float32",
             "intermediate_peak_normalization": False,
@@ -278,16 +355,23 @@ def separate_guitars(
                 "config_sha256": spec.config_sha256,
                 "inference": arrays.reports[spec.key],
             }
-            for spec in MODEL_SPECS
+            for spec in model_specs_for_quality(arrays.quality)
         },
         "implementation": {
             "msst_source_commit": MSST_SOURCE_COMMIT,
-            "method": [
-                "acoustic guitar from the original decoded float32 mix",
-                "electric guitar from the same original decoded float32 mix",
-                "lead guitar from the electric-guitar intermediate",
-                "rhythm is the float32 complementary electric-guitar residual",
-            ],
+            "method": (
+                [
+                    "acoustic and electric guitar from one shared-trunk BS-RoFormer pass ensemble",
+                    "lead guitar from the electric-guitar intermediate",
+                    "rhythm is the float32 complementary electric-guitar residual",
+                ]
+                if arrays.quality != "fast"
+                else [
+                    "acoustic and electric guitar from two lightweight MDX-Net models",
+                    "lead guitar from a lightweight HTDemucs electric-guitar pass",
+                    "rhythm is the float32 complementary electric-guitar residual",
+                ]
+            ),
         },
         "intermediates": {"electric_guitar_stats": audio_stats(arrays.electric_guitar)},
         "consistency": {"lead_plus_rhythm_minus_electric": arrays.reconstruction},

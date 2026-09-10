@@ -13,6 +13,7 @@ export function installFixtureBridge(): void {
     modelRoot: 'C:\\Users\\Musician\\BandBuddy\\envs\\models',
     debugMode: false,
     highQualityStems: false,
+    guitarSeparationQuality: 'balanced' as const,
     preferredDevice: 'auto' as const,
     audioOutputDeviceId: '', latencyMode: 'balanced' as const, recordingAudio: createDefaultRecordingAudioSettings(), keepSource: true, closeToTrayWhileWorking: true,
     network: {

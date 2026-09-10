@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Install BandBuddy's pinned v2.0.0 separation bundle from ModelScope.
+"""Install BandBuddy's pinned v2.0.1 separation bundle from ModelScope.
 
 Every byte count and SHA-256 is compiled into the application. Downloads use
 ``.part`` files and HTTP Range so interrupted installs resume safely. The
-bundle marker is written atomically only after all four checkpoints and the
+bundle marker is written atomically only after all six model files and the
 Demucs repository descriptor have been verified together.
 """
 
@@ -23,11 +23,11 @@ from urllib.request import Request, urlopen
 
 
 MODEL_REPOSITORY = "Zzzzzzorz/BandBuddy-Models"
-MODEL_REVISION = "v2.0.0"
+MODEL_REVISION = "v2.0.1"
 MODEL_BASE_URL = (
     f"https://modelscope.cn/models/{MODEL_REPOSITORY}/resolve/{MODEL_REVISION}"
 )
-BUNDLE_DIRECTORY = "bandbuddy-stems-v2.0.0"
+BUNDLE_DIRECTORY = "bandbuddy-stems-v2.0.1"
 DEMUCS_MODEL_NAME = "htdemucs_6s"
 DEMUCS_BAG = "models: ['5c90dfd2']\n"
 CHUNK_SIZE = 1024 * 1024
@@ -48,22 +48,34 @@ BUNDLE_FILES: tuple[BundleFile, ...] = (
         "34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd",
     ),
     BundleFile(
-        "acoustic_guitar",
-        "bs_mega_53stem_acoustic-guitar_mvsep.ckpt",
-        77_624_038,
-        "fa386b2e7b1ea4f12b9b5c557444c0dc78648ef4ee299de2759d86457e182b3e",
+        "shared_acoustic_electric",
+        "bs_mega_53stem_acoustic-electric_shared_mvsep.ckpt",
+        102_410_137,
+        "054c13fc97ff863df55c1e8f0ab620a7697df38a98c564e6d8aa4e314d8fa391",
     ),
     BundleFile(
-        "electric_guitar",
-        "bs_mega_53stem_electric-guitar_mvsep.ckpt",
-        77_624_038,
-        "cd506bfce9474f91a31001967f2c4935ce4e67f643da3df20d04058da927c553",
-    ),
-    BundleFile(
-        "lead_rhythm_guitar",
+        "lead_rhythm_hq",
         "mbr_lead_rhythm_guitar_listra92.ckpt",
         337_073_664,
         "b3c47bca33609ca1ba0bb2d2076410bfd1eb941b051b72afc1f3e24d12b17eef",
+    ),
+    BundleFile(
+        "acoustic_guitar_fast",
+        "mdx_6s_acoustic_guitar_anvuew.onnx",
+        27_147_460,
+        "2bd8f2af629b279cc1a568f895ee9636f7ce2d76c69aa601e6744eaab8b4916a",
+    ),
+    BundleFile(
+        "electric_guitar_fast",
+        "mdx_6s_electric_guitar_anvuew.onnx",
+        27_147_623,
+        "bd6fcf40659771568ee180ea69bd4576a9c3d2423ae0f5f6f5afcc8b6a6fd938",
+    ),
+    BundleFile(
+        "lead_rhythm_fast",
+        "demucs4_lead_rhythm_guitar_drypaint.ckpt",
+        109_822_623,
+        "946ffd50d7f2fd87e447d880525283e88bd9061e1b428d4f1d380e764d54d618",
     ),
 )
 
@@ -154,7 +166,7 @@ def _download_once(
             progress(1.0)
             return
     offset = partial.stat().st_size if partial.is_file() else 0
-    headers = {"User-Agent": "BandBuddy/2.0"}
+    headers = {"User-Agent": "BandBuddy/2.0.1"}
     if offset:
         headers["Range"] = f"bytes={offset}-"
     request = Request(f"{MODEL_BASE_URL}/{spec.filename}", headers=headers)
@@ -253,7 +265,7 @@ def install_bundle(
     bag_partial.write_text(DEMUCS_BAG, "utf-8")
     os.replace(bag_partial, bag)
     document = {
-        "schema": 1,
+        "schema": 2,
         "repository": MODEL_REPOSITORY,
         "revision": MODEL_REVISION,
         "files": hashes,

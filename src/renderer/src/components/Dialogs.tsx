@@ -31,6 +31,7 @@ import {
   type AppSettings,
   type AudioBackend,
   type ExportFormat,
+  type GuitarSeparationQuality,
   type JobRecord,
   type MusicalKeyAnalysis,
   type MusicalKeyMode,
@@ -46,6 +47,22 @@ import {
 } from '@shared/domain.js'
 import { applyRuntimeSourcePreset, matchRuntimeSourcePreset, type RuntimeSourcePreset } from '@shared/runtime-sources.js'
 import { formatDate, formatTime, isCancellationError, statusLabel, toUserErrorMessage } from '../utils.js'
+
+const GUITAR_QUALITY_VALUES: readonly GuitarSeparationQuality[] = ['fast', 'balanced', 'high']
+const GUITAR_QUALITY_DETAILS: Record<GuitarSeparationQuality, { label: string; detail: string }> = {
+  fast: {
+    label: '极速',
+    detail: '两套 MDX-Net + HTDemucs；快速/预览质量。本次 RTX 3060 测试曲目约 27 秒。'
+  },
+  balanced: {
+    label: '平衡',
+    detail: '共享 BS-RoFormer 主干 · HQ3；兼顾分轨效果与等待时间。'
+  },
+  high: {
+    label: '高质量',
+    detail: '共享 BS-RoFormer 主干 · HQ6；效果优先，用时最长。'
+  }
+}
 
 export function ImportDialog({
   open,
@@ -239,6 +256,8 @@ export function SettingsDrawer({
       setRecordingDeviceError(toUserErrorMessage(error, '输入测试失败，请检查声卡后重试'))
     }
   }
+  const guitarQualityIndex = GUITAR_QUALITY_VALUES.indexOf(draft.guitarSeparationQuality)
+  const guitarQuality = GUITAR_QUALITY_DETAILS[draft.guitarSeparationQuality]
   return <Dialog.Root open={open} onOpenChange={onOpenChange}><Dialog.Portal><Dialog.Overlay className="dialog-overlay" data-dialog-open="true" /><Dialog.Content className="drawer settings-drawer" data-dialog-open="true" aria-describedby={undefined}>
     <Dialog.Close className="dialog-close"><X /></Dialog.Close><div className="settings-scroll">
     <Dialog.Title>设置</Dialog.Title><p className="dialog-lead">管理本地分离环境、音频设备与网络源。</p>
@@ -252,6 +271,24 @@ export function SettingsDrawer({
       <div className="danger-actions"><button onClick={() => void action(() => window.bandbuddy.runtime.clearModel())}>清理分轨资源缓存</button><button onClick={() => void action(() => window.bandbuddy.runtime.remove(false))}>卸载环境</button><button onClick={() => void action(() => window.bandbuddy.runtime.remove(true))}>环境与分轨资源全部清理</button></div>
     </section>
     <section className="settings-section"><h3><HardDrive />分轨音质</h3>
+      <div className="guitar-quality-setting">
+        <header><span><b>吉他分轨档位</b><small>仅影响后续新建的吉他分轨任务</small></span><strong>{guitarQuality.label}</strong></header>
+        <input
+          type="range"
+          min="0"
+          max="2"
+          step="1"
+          value={Math.max(0, guitarQualityIndex)}
+          aria-label="吉他分轨档位"
+          aria-valuetext={guitarQuality.label}
+          onChange={(event) => {
+            const next = GUITAR_QUALITY_VALUES[Number(event.currentTarget.value)] ?? 'balanced'
+            setDraft((current) => ({ ...current, guitarSeparationQuality: next }))
+          }}
+        />
+        <div className="guitar-quality-labels" aria-hidden="true"><span>极速</span><span>平衡</span><span>高质量</span></div>
+        <p>{guitarQuality.detail}</p>
+      </div>
       <label className="settings-toggle"><input type="checkbox" aria-label="高音质分轨" checked={draft.highQualityStems} onChange={(event) => setDraft({ ...draft, highQualityStems: event.target.checked })} /><span><b>高音质分轨</b><small>{draft.highQualityStems ? '新分轨保存为 24-bit FLAC，占用空间较大' : '新分轨保存为 320 kbps MP3，节省空间'}</small></span></label>
       <p className="security-note">仅影响后续分轨；已有歌曲需重新分轨才会改变格式</p>
     </section>

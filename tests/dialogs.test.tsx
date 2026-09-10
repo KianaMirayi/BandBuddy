@@ -151,6 +151,30 @@ describe('library dialogs', () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(expect.objectContaining({ highQualityStems: true })))
   })
 
+  it('saves the draggable guitar quality tier for future tasks', async () => {
+    const [settings, runtime] = await Promise.all([
+      window.bandbuddy.settings.get(),
+      window.bandbuddy.runtime.get()
+    ])
+    const update = vi.spyOn(window.bandbuddy.settings, 'update').mockImplementation(async (next) => next)
+    render(<SettingsDrawer
+      open
+      onOpenChange={() => undefined}
+      runtime={runtime}
+      settings={{ ...settings, guitarSeparationQuality: 'balanced' }}
+      onSaved={() => undefined}
+      onRefresh={() => undefined}
+    />)
+
+    const slider = screen.getByRole('slider', { name: '吉他分轨档位' })
+    expect(slider.getAttribute('aria-valuetext')).toBe('平衡')
+    fireEvent.change(slider, { target: { value: '0' } })
+    expect(screen.getByText(/快速\/预览质量/)).toBeTruthy()
+    expect(slider.getAttribute('aria-valuetext')).toBe('极速')
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
+    await waitFor(() => expect(update).toHaveBeenCalledWith(expect.objectContaining({ guitarSeparationQuality: 'fast' })))
+  })
+
   it('enables debug mode immediately and reveals the debug log from settings', async () => {
     const [settings, runtime] = await Promise.all([
       window.bandbuddy.settings.get(),

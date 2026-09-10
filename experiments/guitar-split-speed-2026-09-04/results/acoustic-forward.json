@@ -1,0 +1,159 @@
+{
+  "model": "acoustic",
+  "architecture": "bs_roformer",
+  "chunk_size": 882000,
+  "chunk_seconds": 20.0,
+  "torch": "2.11.0+cu130",
+  "cuda": "13.0",
+  "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU",
+  "attention_modules": 24,
+  "amp": true,
+  "backend_trials": [
+    {
+      "backend": "legacy_windows",
+      "status": "ok",
+      "seconds": [
+        1.2204937000060454,
+        1.2465784000232816
+      ],
+      "median_seconds": 1.2335360500146635,
+      "peak_cuda_bytes": 1140857856,
+      "vs_reference": {
+        "reference_rms": 0.03800171614436258,
+        "difference_rms": 0.0,
+        "difference_peak": 0.0,
+        "difference_snr_db": Infinity,
+        "correlation": 0.9999999999999998
+      }
+    },
+    {
+      "backend": "auto",
+      "status": "ok",
+      "seconds": [
+        1.2229404000099748,
+        1.2512933999532834
+      ],
+      "median_seconds": 1.237116899981629,
+      "peak_cuda_bytes": 1140857856,
+      "vs_reference": {
+        "reference_rms": 0.03800171614436258,
+        "difference_rms": 0.0,
+        "difference_peak": 0.0,
+        "difference_snr_db": Infinity,
+        "correlation": 0.9999999999999998
+      }
+    },
+    {
+      "backend": "flash",
+      "status": "ok",
+      "seconds": [
+        1.230180700076744,
+        1.2571427999064326
+      ],
+      "median_seconds": 1.2436617499915883,
+      "peak_cuda_bytes": 1140857856,
+      "vs_reference": {
+        "reference_rms": 0.03800171614436258,
+        "difference_rms": 8.039873677629947e-05,
+        "difference_peak": 0.0015521571040153503,
+        "difference_snr_db": 53.49107968948812,
+        "correlation": 0.9999977647016703
+      }
+    },
+    {
+      "backend": "efficient",
+      "status": "ok",
+      "seconds": [
+        1.2361023999983445,
+        1.2336441000225022
+      ],
+      "median_seconds": 1.2348732500104234,
+      "peak_cuda_bytes": 1140857856,
+      "vs_reference": {
+        "reference_rms": 0.03800171614436258,
+        "difference_rms": 0.0,
+        "difference_peak": 0.0,
+        "difference_snr_db": Infinity,
+        "correlation": 0.9999999999999998
+      }
+    }
+  ],
+  "batch_trials": [
+    {
+      "backend": "efficient",
+      "batch_size": 1,
+      "status": "ok",
+      "seconds": [
+        1.2410884000128135,
+        1.2553389000240713
+      ],
+      "median_seconds": 1.2482136500184424,
+      "median_seconds_per_item": 1.2482136500184424,
+      "peak_cuda_bytes": 1140857856,
+      "within_batch_consistency": {
+        "reference_rms": 0.03800171614436258,
+        "difference_rms": 0.0,
+        "difference_peak": 0.0,
+        "difference_snr_db": Infinity,
+        "correlation": 0.9999999999999998
+      }
+    },
+    {
+      "backend": "efficient",
+      "batch_size": 2,
+      "status": "ok",
+      "seconds": [
+        2.5177978998981416,
+        2.5370609998935834
+      ],
+      "median_seconds": 2.5274294498958625,
+      "median_seconds_per_item": 1.2637147249479312,
+      "peak_cuda_bytes": 2117105152,
+      "within_batch_consistency": {
+        "reference_rms": 0.03800017890520742,
+        "difference_rms": 0.0,
+        "difference_peak": 0.0,
+        "difference_snr_db": Infinity,
+        "correlation": 1.0000000000000002
+      }
+    },
+    {
+      "backend": "efficient",
+      "batch_size": 3,
+      "status": "ok",
+      "seconds": [
+        5.824508399935439,
+        6.0926126999547705
+      ],
+      "median_seconds": 5.958560549945105,
+      "median_seconds_per_item": 1.9861868499817017,
+      "peak_cuda_bytes": 3091959808,
+      "within_batch_consistency": {
+        "reference_rms": 0.03800832513613841,
+        "difference_rms": 0.0,
+        "difference_peak": 0.0,
+        "difference_snr_db": Infinity,
+        "correlation": 1.0
+      }
+    },
+    {
+      "backend": "efficient",
+      "batch_size": 4,
+      "status": "ok",
+      "seconds": [
+        8.438918900093995,
+        8.40416010003537
+      ],
+      "median_seconds": 8.421539500064682,
+      "median_seconds_per_item": 2.1053848750161706,
+      "peak_cuda_bytes": 4071645184,
+      "within_batch_consistency": {
+        "reference_rms": 0.03800499914860817,
+        "difference_rms": 0.0,
+        "difference_peak": 0.0,
+        "difference_snr_db": Infinity,
+        "correlation": 1.0
+      }
+    }
+  ]
+}

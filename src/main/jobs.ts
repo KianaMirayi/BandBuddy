@@ -7,6 +7,7 @@ import {
   GUITAR_SPLIT_STEMS,
   LEGACY_STEM_ORDER,
   type ExportRequest,
+  type GuitarSeparationQuality,
   type JobRecord,
   type StemStorageFormat,
   type StemType
@@ -27,6 +28,7 @@ interface SeparationPayload {
   retry?: number
   deviceOverride?: 'cuda' | 'mps' | 'cpu'
   enableGuitarSplitOnSuccess?: boolean
+  guitarQuality?: GuitarSeparationQuality
 }
 
 interface NormalizePayload {
@@ -187,6 +189,7 @@ export class JobScheduler {
         storageFormat,
         baseEncodingGain: encoded.encodingGain,
         targetDurationMs: encoded.targetDurationMs,
+        guitarQuality: payload.guitarQuality ?? 'high',
         retry: 0,
         enableGuitarSplitOnSuccess: payload.enableGuitarSplitOnSuccess ?? false
       }
@@ -198,6 +201,7 @@ export class JobScheduler {
 
   private async runGuitarSplit(jobId: string, songId: string, payload: GuitarSplitJobPayload, signal: AbortSignal): Promise<void> {
     const settings = this.database.getSettings()
+    const guitarQuality = payload.guitarQuality ?? 'high'
     const source = this.paths.resolveLibraryPath(settings.libraryRoot, payload.sourceRelPath)
     const songRoot = this.paths.songDirectory(settings.libraryRoot, songId)
     const taskRoot = path.join(songRoot, '.tasks', jobId)
@@ -223,7 +227,7 @@ export class JobScheduler {
       workerRoot,
       settings.modelRoot,
       preparationProgress,
-      '正在细分吉他轨',
+      guitarQuality === 'fast' ? '正在极速细分吉他轨（预览质量）' : '正在细分吉他轨',
       signal
     )
     const encoded = await this.encodeWorkerStems(
@@ -249,7 +253,7 @@ export class JobScheduler {
       songId,
       jobId,
       payload,
-      RUNTIME_VERSIONS.modelRevision,
+      `${RUNTIME_VERSIONS.modelRevision}:guitar-${guitarQuality}`,
       worker.selected,
       encoded.stored
     )
@@ -278,9 +282,13 @@ export class JobScheduler {
       workerErrorCode = null
       this.database.setJobState(jobId, 'preparing', phase, preparationProgress)
       this.changed()
-      return await this.runtime.runWorker([
+      const workerArgs = [
         command, '--input', source, '--output', workerRoot, '--model-root', modelRoot, '--device', selected
-      ], signal, 0, (message) => {
+      ]
+      if (command === 'separate-guitar') {
+        workerArgs.push('--quality', payload.guitarQuality ?? 'high')
+      }
+      return await this.runtime.runWorker(workerArgs, signal, 0, (message) => {
         if (message.type === 'error') workerErrorCode = String(message.code ?? 'WORKER_FAILED')
         if (message.type === 'progress') {
           const workerProgress = typeof message.progress === 'number' ? message.progress : 0

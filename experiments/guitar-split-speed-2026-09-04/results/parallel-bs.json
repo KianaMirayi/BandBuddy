@@ -1,0 +1,21 @@
+{
+  "iterations": 3,
+  "chunk_size": 882000,
+  "sequential_seconds": 8.45395070000086,
+  "concurrent_seconds": 8.561165300081484,
+  "speedup": 0.9874766347427489,
+  "sequential_peak_cuda_bytes": 1310177280,
+  "concurrent_peak_cuda_bytes": 1329270272,
+  "differences": {
+    "acoustic": {
+      "rms": 0.0,
+      "peak": 0.0
+    },
+    "electric": {
+      "rms": 0.0,
+      "peak": 0.0
+    }
+  },
+  "torch": "2.11.0+cu130",
+  "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU"
+}

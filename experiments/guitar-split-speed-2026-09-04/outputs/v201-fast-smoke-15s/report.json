@@ -1,0 +1,60 @@
+{
+  "input": "C:\\CloudMusic\\新裤子 - 没有理想的人不伤心.mp3",
+  "frames": 661500,
+  "duration_seconds": 15.0,
+  "elapsed_seconds": 4.815277999965474,
+  "reports": {
+    "acoustic_fast": {
+      "architecture": "mdx_net",
+      "target": "acoustic_guitar",
+      "quality": "fast-preview",
+      "seconds": 0.8183551999973133,
+      "parameters": 6779816,
+      "device": "cuda",
+      "provider_requested": "CUDAExecutionProvider",
+      "providers_active": [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider"
+      ],
+      "chunk_size": 261120,
+      "overlap": 0.5,
+      "batch_size": 1,
+      "peak_cuda_bytes": 48300544
+    },
+    "electric_fast": {
+      "architecture": "mdx_net",
+      "target": "electric_guitar",
+      "quality": "fast-preview",
+      "seconds": 0.4313456000527367,
+      "parameters": 6779816,
+      "device": "cuda",
+      "provider_requested": "CUDAExecutionProvider",
+      "providers_active": [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider"
+      ],
+      "chunk_size": 261120,
+      "overlap": 0.5,
+      "batch_size": 1,
+      "peak_cuda_bytes": 48300544
+    },
+    "lead_fast": {
+      "architecture": "htdemucs",
+      "target": "lead",
+      "quality": "fast-preview",
+      "seconds": 0.5988732998957857,
+      "parameters": 27405756,
+      "device": "cuda",
+      "provider_requested": null,
+      "providers_active": [],
+      "chunk_size": 132300,
+      "overlap": 2.0,
+      "batch_size": 8,
+      "peak_cuda_bytes": 1305574400
+    }
+  },
+  "reconstruction": {
+    "rms": 6.82419576525884e-14,
+    "peak": 3.637978807091713e-12
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "model": "acoustic",
+  "input": "C:\\Users\\zhaoj\\Documents\\BandBuddy\\测试用例\\新裤子 - 没有理想的人不伤心.mp3",
+  "segment_start_seconds": 60.0,
+  "segment_duration_seconds": 60.0,
+  "configured_chunk_samples": 882000,
+  "training_chunk_samples": 441000,
+  "overlap": 2,
+  "torch": "2.11.0+cu130",
+  "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU",
+  "reference_chunk_seconds": 20.0,
+  "trials": [
+    {
+      "chunk_seconds": 10.0,
+      "chunk_size": 441000,
+      "seconds": 9.815423400024883,
+      "realtime_factor": 0.16359039000041473,
+      "peak_cuda_bytes": 653669888,
+      "vs_reference_chunk": {
+        "reference_rms": 0.037069831322421073,
+        "candidate_rms": 0.03656659161869641,
+        "difference_rms": 0.0056288975514268485,
+        "difference_peak": 0.044444365426898,
+        "difference_snr_db": 16.371945310195198,
+        "correlation": 0.9884061842985579,
+        "one_second_snr_min_db": 7.63859891061596,
+        "one_second_snr_median_db": 16.5955338704303
+      }
+    },
+    {
+      "chunk_seconds": 12.771,
+      "chunk_size": 563201,
+      "seconds": 10.690254500019364,
+      "realtime_factor": 0.17817090833365606,
+      "peak_cuda_bytes": 790754816,
+      "vs_reference_chunk": {
+        "reference_rms": 0.037069831322421073,
+        "candidate_rms": 0.036466619154341205,
+        "difference_rms": 0.0061159643065167675,
+        "difference_peak": 0.07032854855060577,
+        "difference_snr_db": 15.651113354490779,
+        "correlation": 0.986299437219993,
+        "one_second_snr_min_db": 9.421647235671793,
+        "one_second_snr_median_db": 15.41694560897838
+      }
+    },
+    {
+      "chunk_seconds": 15.0,
+      "chunk_size": 661500,
+      "seconds": 11.0612175000133,
+      "realtime_factor": 0.18435362500022165,
+      "peak_cuda_bytes": 898237952,
+      "vs_reference_chunk": {
+        "reference_rms": 0.037069831322421073,
+        "candidate_rms": 0.036660234732920294,
+        "difference_rms": 0.005603026755065581,
+        "difference_peak": 0.052233658730983734,
+        "difference_snr_db": 16.411958272052786,
+        "correlation": 0.988511258760597,
+        "one_second_snr_min_db": 11.602381230009616,
+        "one_second_snr_median_db": 16.3574756682142
+      }
+    },
+    {
+      "chunk_seconds": 20.0,
+      "chunk_size": 882000,
+      "seconds": 12.566835600067861,
+      "realtime_factor": 0.20944726000113104,
+      "peak_cuda_bytes": 1141275136,
+      "vs_reference_chunk": {
+        "reference_rms": 0.037069831322421073,
+        "candidate_rms": 0.037069831322421073,
+        "difference_rms": 0.0,
+        "difference_peak": 0.0,
+        "difference_snr_db": Infinity,
+        "correlation": 1.0,
+        "one_second_snr_min_db": Infinity,
+        "one_second_snr_median_db": Infinity
+      }
+    }
+  ]
+}

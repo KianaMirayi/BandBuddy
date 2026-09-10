@@ -49,6 +49,7 @@ export const DEFAULT_OUTPUT_CHANNEL_PAIR = 1
 export const MAX_ROUTABLE_OUTPUT_CHANNELS = 32
 
 export type ComputeDevice = 'auto' | 'cuda' | 'mps' | 'cpu'
+export type GuitarSeparationQuality = 'fast' | 'balanced' | 'high'
 export type GuitarSplitStatus = 'missing' | 'pending' | 'ready' | 'failed'
 export type RuntimeStatus =
   | 'missing'
@@ -533,6 +534,7 @@ export interface AppSettings {
   keepSource: boolean
   closeToTrayWhileWorking: boolean
   highQualityStems: boolean
+  guitarSeparationQuality: GuitarSeparationQuality
   network: NetworkSettings
 }
 

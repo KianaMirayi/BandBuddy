@@ -1,0 +1,80 @@
+{
+  "date": "2026-09-04",
+  "input": {
+    "path": "C:\\CloudMusic\\新裤子 - 没有理想的人不伤心.mp3",
+    "sha256": "C3CD8B471B422DB2F424AD651246C23AD1827EA28293E0AD3D5ECA6594B34177",
+    "duration_seconds": 341.05333333333334,
+    "frames": 15040452
+  },
+  "environment": {
+    "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU",
+    "torch": "2.11.0+cu130",
+    "cuda": "13.0",
+    "onnxruntime_gpu": "1.28.0"
+  },
+  "current": {
+    "model_inference_seconds": 858.18,
+    "checkpoint_bytes": 492321740,
+    "weight_values_or_parameters": 161585500
+  },
+  "lightweight_models": {
+    "acoustic_guitar": {
+      "name": "mdx_6s_acoustic_guitar_anvuew",
+      "checkpoint_bytes": 27147460,
+      "initializer_values": 6779816,
+      "inference_seconds": 17.80595969990827,
+      "speedup_vs_current_hq6": 18.008015597252633,
+      "comparison_to_current_hq6": {
+        "correlation": 0.5202219914890236,
+        "difference_snr_db": 0.7137496626411312
+      }
+    },
+    "electric_guitar": {
+      "name": "mdx_6s_electric_guitar_anvuew",
+      "checkpoint_bytes": 27147623,
+      "initializer_values": 6779816,
+      "inference_seconds": 17.569978300016373,
+      "speedup_vs_current_hq6": 19.144588243440605,
+      "comparison_to_current_hq6": {
+        "correlation": 0.84414298143125,
+        "difference_snr_db": 4.70127683869055
+      }
+    },
+    "lead_rhythm": {
+      "name": "demucs4_lead_rhythm_guitar_drypaint",
+      "checkpoint_bytes": 109822623,
+      "parameters": 27405756,
+      "batch_size": 8,
+      "inference_seconds_on_current_hq6_electric": 13.085624600062147,
+      "inference_seconds_on_mdx_electric": 12.749570499989204,
+      "peak_cuda_bytes": 1332570624,
+      "comparison_to_current_hq6_lead_on_current_electric": {
+        "correlation": 0.9359743859600324,
+        "difference_snr_db": 8.28422185028167
+      },
+      "comparison_to_current_hq6_lead_on_mdx_electric": {
+        "correlation": 0.8834016366594724,
+        "difference_snr_db": 6.105721048233825
+      },
+      "batch8_vs_batch1": {
+        "correlation": 0.9999999849463188,
+        "difference_snr_db": 75.19772346678823
+      }
+    }
+  },
+  "fast_chain": {
+    "checkpoint_bytes": 164117706,
+    "checkpoint_reduction_percent": 66.66454217520436,
+    "weight_values_or_parameters": 40965388,
+    "model_inference_seconds": 48.12550849991385,
+    "speedup_vs_current": 17.83212326996059,
+    "projected_process_seconds": 54.85550849991387,
+    "output_comparison_to_current_hq6": {
+      "acoustic_correlation": 0.5202219914890236,
+      "electric_correlation": 0.84414298143125,
+      "lead_correlation": 0.8834016366594724,
+      "rhythm_correlation": 0.8136356438130729
+    }
+  },
+  "recommendation": "Keep shared-trunk BS-RoFormer plus the current Lead MBR as the default quality mode; expose the three lightweight candidates only as an explicitly labeled fast mode until ground-truth and listening tests pass."
+}

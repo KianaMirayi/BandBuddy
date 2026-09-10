@@ -1,0 +1,17 @@
+audio:
+  sample_rate: 44100
+model:
+  dim_f: 2048
+  dim_t: 256
+  n_fft: 4096
+  hop_length: 1024
+  primary_stem: electric_guitar
+training:
+  instruments:
+    - electric_guitar
+    - other
+  target_instrument: electric_guitar
+inference:
+  batch_size: 1
+  overlap: 0.5
+  denoise: false

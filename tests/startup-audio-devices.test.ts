@@ -18,6 +18,7 @@ function appSettings(): AppSettings {
     modelRoot: 'models',
     debugMode: false,
     highQualityStems: false,
+    guitarSeparationQuality: 'balanced',
     preferredDevice: 'auto',
     audioOutputDeviceId: '',
     latencyMode: 'balanced',

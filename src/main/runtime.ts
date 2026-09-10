@@ -12,7 +12,11 @@ import type { Logger } from './logger.js'
 import { isManagedPath, type AppPaths } from './paths.js'
 import { runProcess, spawnSafe } from './process.js'
 import { selectComputeDevice } from './runtime-device.js'
-import { PYTHON_RUNTIME_REQUIREMENTS, PYTHON_RUNTIME_VERSIONS } from './runtime-dependencies.js'
+import {
+  PYTHON_RUNTIME_VERSIONS,
+  pythonRuntimeRequirements,
+  selectOnnxRuntimeVariant
+} from './runtime-dependencies.js'
 import { currentToolTarget, toolFile } from './platform-tools.js'
 import {
   VC_RUNTIME_DOWNLOAD_URL,
@@ -31,7 +35,7 @@ export const RUNTIME_VERSIONS = {
   uv: UV_SOURCE.version,
   python: '3.12',
   ...PYTHON_RUNTIME_VERSIONS,
-  modelRevision: 'bandbuddy-stems:v2.0.0'
+  modelRevision: 'bandbuddy-stems:v2.0.1'
 } as const
 
 const UV_ARCHIVE_SHA256 = UV_SOURCE.sha256
@@ -282,19 +286,20 @@ export class RuntimeManager {
       ], '创建 BandBuddy 私有环境', 0.2)
 
       const installArgs = ['pip', 'install', '--python', this.pythonExecutable()]
+      const cudaVersion = await this.detectCudaVersion()
+      const backend = selectPytorchBackend(process.platform, cudaVersion, settings.preferredDevice)
       if (settings.network.pythonIndexUrl) installArgs.push('--default-index', settings.network.pythonIndexUrl)
       if (settings.network.pytorchIndexUrl.includes('{backend}')) {
-        const cudaVersion = await this.detectCudaVersion()
-        const backend = selectPytorchBackend(process.platform, cudaVersion, settings.preferredDevice)
         installArgs.push('--find-links', resolvePytorchSourceUrl(settings.network.pytorchIndexUrl, backend))
         this.logger.info('selected mirrored PyTorch backend', { backend, cudaVersion })
       } else if (settings.network.pytorchIndexUrl) {
         installArgs.push('--index', settings.network.pytorchIndexUrl)
       } else {
-        const backend = settings.preferredDevice === 'cpu' || settings.preferredDevice === 'mps' ? 'cpu' : 'auto'
         installArgs.push('--torch-backend', backend)
       }
-      installArgs.push(...PYTHON_RUNTIME_REQUIREMENTS)
+      const onnxVariant = selectOnnxRuntimeVariant(process.platform, backend)
+      installArgs.push(...pythonRuntimeRequirements(PYTHON_RUNTIME_VERSIONS, onnxVariant))
+      this.logger.info('selected ONNX Runtime package', { onnxVariant, backend, cudaVersion })
       await run(installArgs, '安装本地分轨组件（下载可续传）', 0.32)
 
       this.update({ status: 'downloadingModel', stage: '下载并校验分轨资源', progress: 0.78 })

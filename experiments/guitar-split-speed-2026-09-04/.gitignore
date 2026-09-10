@@ -1,0 +1,11 @@
+artifacts/
+model-bundle-v2.0.1/
+pydeps/
+triton-site/
+*.whl
+results/*.wav
+results/*.flac
+results/*.jsonl
+__pycache__/
+outputs/**/*.wav
+outputs/**/*.flac

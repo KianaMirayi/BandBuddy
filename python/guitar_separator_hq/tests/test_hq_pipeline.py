@@ -14,9 +14,9 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from guitar_separator_hq import inference, separator
+from guitar_separator_hq import fast_inference, inference, separator
 from guitar_separator_hq.inference import InferenceReport
-from guitar_separator_hq.specs import MODEL_SPECS, config_path
+from guitar_separator_hq.specs import HQ_MODEL_SPECS, MODEL_SPECS, config_path
 
 
 class IdentityStem(torch.nn.Module):
@@ -46,6 +46,37 @@ class HqPipelineTests(unittest.TestCase):
         )
         np.testing.assert_allclose(estimate, mix, atol=2e-7, rtol=2e-6)
 
+    def test_hq3_tta_and_overlap_preserve_identity(self) -> None:
+        generator = np.random.default_rng(43)
+        mix = generator.normal(0, 0.05, size=(2, 4_321)).astype(np.float32)
+        estimate = inference._predict_passes(
+            IdentityStem(),
+            mix,
+            chunk_size=1_000,
+            overlap=2,
+            use_amp=False,
+            device=torch.device("cpu"),
+            passes=inference.HQ3_PASSES,
+            num_stems=1,
+            progress=None,
+        )
+        np.testing.assert_allclose(estimate, mix, atol=2e-7, rtol=2e-6)
+
+    def test_onnx_providers_follow_actual_platform_device(self) -> None:
+        available = ["CoreMLExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
+        self.assertEqual(
+            fast_inference.select_onnx_providers(torch.device("cuda"), available),
+            ("CUDAExecutionProvider", "CPUExecutionProvider"),
+        )
+        self.assertEqual(
+            fast_inference.select_onnx_providers(torch.device("mps"), available),
+            ("CoreMLExecutionProvider", "CPUExecutionProvider"),
+        )
+        self.assertEqual(
+            fast_inference.select_onnx_providers(torch.device("cpu"), available),
+            ("CPUExecutionProvider",),
+        )
+
     def test_three_outputs_are_float_and_lead_rhythm_are_complementary(self) -> None:
         frames = 8_192
         mix = np.linspace(-0.4, 0.4, frames * 2, dtype=np.float32).reshape(2, frames)
@@ -56,6 +87,7 @@ class HqPipelineTests(unittest.TestCase):
         report = InferenceReport(
             architecture="test",
             target="test",
+            quality="high",
             chunk_size=1,
             overlap=2,
             big_shifts=2,
@@ -73,12 +105,18 @@ class HqPipelineTests(unittest.TestCase):
             source.write_bytes(b"synthetic input marker")
             output = root / "out"
 
-            def fake_predict(source_audio, spec, checkpoint, device, progress):
-                return estimates[spec.key].copy(), report
+            def fake_shared(source_audio, spec, checkpoint, device, progress, *, quality):
+                self.assertEqual(quality, "high")
+                return np.stack((acoustic, electric)), report
+
+            def fake_predict(source_audio, spec, checkpoint, device, progress, *, quality):
+                self.assertEqual(quality, "high")
+                return estimates["lead"].copy(), report
 
             with (
-                patch.object(separator, "ensure_models", return_value={spec.key: root for spec in MODEL_SPECS}),
+                patch.object(separator, "ensure_models", return_value={spec.key: root for spec in HQ_MODEL_SPECS}),
                 patch.object(separator, "load_audio", return_value=mix.copy()),
+                patch.object(separator, "predict_shared_bs", side_effect=fake_shared),
                 patch.object(separator, "predict_model", side_effect=fake_predict),
             ):
                 result = separator.separate_guitars(source, output, root, device_name="cpu")
@@ -91,7 +129,8 @@ class HqPipelineTests(unittest.TestCase):
             np.testing.assert_allclose(loaded_acoustic.T, acoustic, atol=3e-8, rtol=1e-7)
             np.testing.assert_allclose(loaded_lead.T + loaded_rhythm.T, electric, atol=3e-8, rtol=1e-7)
             manifest = json.loads(result.manifest.read_text("utf-8"))
-            self.assertEqual(manifest["quality_policy"]["only_mode"], "HQ6")
+            self.assertEqual(manifest["quality_policy"]["selected"], "high")
+            self.assertEqual(manifest["quality_policy"]["passes"], 6)
             self.assertLess(manifest["consistency"]["lead_plus_rhythm_minus_electric"]["peak"], 3e-8)
             self.assertEqual(set(manifest["outputs"]), set(separator.OUTPUT_NAMES))
             self.assertEqual(list(output.glob("without_*")), [])

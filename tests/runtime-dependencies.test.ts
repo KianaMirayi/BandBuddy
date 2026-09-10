@@ -3,7 +3,8 @@ import {
   PYTHON_RUNTIME_REQUIREMENTS,
   PYTHON_RUNTIME_VERSIONS,
   pythonRuntimeRequirements,
-  pythonRuntimeVersions
+  pythonRuntimeVersions,
+  selectOnnxRuntimeVariant
 } from '../src/main/runtime-dependencies.js'
 
 describe('managed Python runtime dependencies', () => {
@@ -12,7 +13,10 @@ describe('managed Python runtime dependencies', () => {
     expect(windows).toEqual({
       torch: '2.11.0',
       torchaudio: '2.11.0',
-      demucs: '4.1.0'
+      demucs: '4.1.0',
+      onnxRuntimeCpu: '1.28.0',
+      onnxRuntimeCuda12: '1.26.0',
+      onnxRuntimeCuda13: '1.28.0'
     })
     expect(pythonRuntimeRequirements(windows)).toEqual([
       'torch==2.11.0',
@@ -26,7 +30,8 @@ describe('managed Python runtime dependencies', () => {
       'einops==0.8.1',
       'beartype==0.18.5',
       'rotary-embedding-torch==0.3.5',
-      'packaging==26.2'
+      'packaging==26.2',
+      'onnxruntime==1.28.0'
     ])
   })
 
@@ -35,6 +40,16 @@ describe('managed Python runtime dependencies', () => {
     const appleSilicon = pythonRuntimeVersions('darwin', 'arm64')
     expect(pythonRuntimeRequirements(intel).slice(0, 2)).toEqual(['torch==2.11.0', 'torchaudio==2.11.0'])
     expect(pythonRuntimeRequirements(appleSilicon).slice(0, 2)).toEqual(['torch==2.11.0', 'torchaudio==2.11.0'])
+  })
+
+  it('installs exactly one hardware-compatible ONNX Runtime package', () => {
+    expect(selectOnnxRuntimeVariant('win32', 'cu130')).toBe('cuda13')
+    expect(selectOnnxRuntimeVariant('win32', 'cu128')).toBe('cuda12')
+    expect(selectOnnxRuntimeVariant('win32', 'cpu')).toBe('cpu')
+    expect(selectOnnxRuntimeVariant('darwin', 'cpu')).toBe('cpu')
+    expect(pythonRuntimeRequirements(PYTHON_RUNTIME_VERSIONS, 'cuda13')).toContain('onnxruntime-gpu==1.28.0')
+    expect(pythonRuntimeRequirements(PYTHON_RUNTIME_VERSIONS, 'cuda12')).toContain('onnxruntime-gpu==1.26.0')
+    expect(pythonRuntimeRequirements(PYTHON_RUNTIME_VERSIONS, 'cuda13')).not.toContain('onnxruntime==1.28.0')
   })
 
   it('exports the dependency set for the running process', () => {

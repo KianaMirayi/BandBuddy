@@ -1,0 +1,44 @@
+{
+  "input": "C:\\Users\\zhaoj\\Documents\\BandBuddy\\测试用例\\新裤子 - 没有理想的人不伤心.mp3",
+  "reference": "C:\\Users\\zhaoj\\Documents\\BandBuddy\\.codex-tmp\\worker-nine-full-v2-20260903",
+  "duration_seconds": 341.05333333333334,
+  "frames": 15040452,
+  "chunk_size": 882000,
+  "overlap": 2,
+  "passes": 6,
+  "load_seconds": 1.1639966999646276,
+  "pass_seconds": {
+    "identity:0": 56.93018710007891,
+    "identity:1": 61.48156769992784,
+    "channel_swap:0": 63.63732500001788,
+    "channel_swap:1": 64.63512790005188,
+    "polarity:0": 65.68594310001936,
+    "polarity:1": 66.39796470000874
+  },
+  "inference_seconds": 378.7681155001046,
+  "baseline_separate_seconds": 657.02,
+  "speedup": 1.7346233041091828,
+  "peak_cuda_bytes": 1190870528,
+  "parameters": 51057684,
+  "comparisons": {
+    "acoustic": {
+      "reference_rms": 0.0477393657588465,
+      "candidate_rms": 0.0477393657588465,
+      "difference_rms": 0.0,
+      "difference_peak": 0.0,
+      "difference_snr_db": Infinity,
+      "correlation": 1.0
+    },
+    "electric": {
+      "reference_rms": 0.12987995421663864,
+      "candidate_rms": 0.12987995421598286,
+      "difference_rms": 1.428445523078545e-09,
+      "difference_peak": 5.960464477539063e-08,
+      "difference_snr_db": 159.1735688921309,
+      "correlation": 1.0000000000000002
+    }
+  },
+  "torch": "2.11.0+cu130",
+  "cuda": "13.0",
+  "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU"
+}

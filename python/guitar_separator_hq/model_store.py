@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import ssl
 import time
-from typing import Callable
+from typing import Callable, Iterable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -67,7 +67,7 @@ def _download_once(
         partial.unlink()
 
     offset = partial.stat().st_size if partial.is_file() else 0
-    headers = {"User-Agent": "BandBuddy/2.0"}
+    headers = {"User-Agent": "BandBuddy/2.0.1"}
     if offset:
         headers["Range"] = f"bytes={offset}-"
     request = Request(spec.source_url, headers=headers)
@@ -150,9 +150,10 @@ def ensure_models(
     *,
     download_missing: bool,
     callback: ProgressCallback | None = None,
+    specs: Iterable[ModelSpec] = MODEL_SPECS,
 ) -> dict[str, Path]:
     resolved: dict[str, Path] = {}
-    for spec in MODEL_SPECS:
+    for spec in specs:
         try:
             resolved[spec.key] = verify_model(model_root, spec)
         except ModelStoreError:

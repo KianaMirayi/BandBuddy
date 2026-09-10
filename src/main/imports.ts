@@ -158,6 +158,7 @@ export class ImportService {
       {
         sourceRelPath: this.paths.toLibraryRelative(settings.libraryRoot, copiedSource),
         storageFormat: stemStorageFormat(settings.highQualityStems),
+        guitarQuality: settings.guitarSeparationQuality,
         retry: 0
       }
     )
@@ -184,12 +185,14 @@ export class ImportService {
     if (!row.source_rel_path) throw new Error('ORIGINAL_SOURCE_NOT_AVAILABLE')
     const existing = this.database.listJobs().find((job) => job.songId === songId && job.type === 'separate' && !['completed', 'cancelled', 'failed', 'interrupted'].includes(job.status))
     if (existing) return existing.id
+    const settings = this.database.getSettings()
     const runtimeReady = this.runtime.getInfo().status === 'ready'
     const status = runtimeReady ? 'queued' : 'blockedRuntime'
     const phase = runtimeReady ? '等待重新分离' : '等待安装本地环境'
     const jobId = this.database.createJob('separate', songId, status, phase, {
       sourceRelPath: row.source_rel_path,
-      storageFormat: stemStorageFormat(this.database.getSettings().highQualityStems),
+      storageFormat: stemStorageFormat(settings.highQualityStems),
+      guitarQuality: settings.guitarSeparationQuality,
       retry: 0
     })
     this.database.setJobState(jobId, status, phase, 0)
@@ -213,6 +216,7 @@ export class ImportService {
     }
     const row = this.database.getSongRow(songId)
     if (!row?.source_rel_path) throw new Error('ORIGINAL_SOURCE_NOT_AVAILABLE')
+    const settings = this.database.getSettings()
     const existingGuitar = this.database.listJobs().find((job) =>
       job.songId === songId
       && job.type === 'guitarSplit'
@@ -245,7 +249,8 @@ export class ImportService {
       const phase = runtimeReady ? '等待基础分轨' : '等待安装本地环境'
       const jobId = this.database.createJob('separate', songId, status, phase, {
         sourceRelPath: row.source_rel_path,
-        storageFormat: stemStorageFormat(this.database.getSettings().highQualityStems),
+        storageFormat: stemStorageFormat(settings.highQualityStems),
+        guitarQuality: settings.guitarSeparationQuality,
         enableGuitarSplitOnSuccess: true,
         retry: 0
       })
@@ -259,7 +264,8 @@ export class ImportService {
     const phase = runtimeReady ? '等待吉他细分' : '等待安装本地环境'
     const jobId = this.database.createJob('guitarSplit', songId, status, phase, {
       sourceRelPath: row.source_rel_path,
-      storageFormat: stemStorageFormat(this.database.getSettings().highQualityStems),
+      storageFormat: stemStorageFormat(settings.highQualityStems),
+      guitarQuality: settings.guitarSeparationQuality,
       baseSeparationId: row.active_separation_id,
       expectedActiveSeparationId: row.active_separation_id,
       baseEncodingGain: 1,

@@ -60,17 +60,19 @@ class InterruptedResponse(FakeResponse):
 
 
 class ModelBundleTests(unittest.TestCase):
-    def test_production_manifest_is_pinned_to_the_public_v2_branch(self) -> None:
+    def test_production_manifest_is_pinned_to_the_public_v201_revision(self) -> None:
         self.assertEqual(model_download.MODEL_REPOSITORY, "Zzzzzzorz/BandBuddy-Models")
-        self.assertEqual(model_download.MODEL_REVISION, "v2.0.0")
-        self.assertIn("/resolve/v2.0.0", model_download.MODEL_BASE_URL)
+        self.assertEqual(model_download.MODEL_REVISION, "v2.0.1")
+        self.assertIn("/resolve/v2.0.1", model_download.MODEL_BASE_URL)
         self.assertEqual(
             [(item.size, item.sha256) for item in model_download.BUNDLE_FILES],
             [
                 (54_996_327, "34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd"),
-                (77_624_038, "fa386b2e7b1ea4f12b9b5c557444c0dc78648ef4ee299de2759d86457e182b3e"),
-                (77_624_038, "cd506bfce9474f91a31001967f2c4935ce4e67f643da3df20d04058da927c553"),
+                (102_410_137, "054c13fc97ff863df55c1e8f0ab620a7697df38a98c564e6d8aa4e314d8fa391"),
                 (337_073_664, "b3c47bca33609ca1ba0bb2d2076410bfd1eb941b051b72afc1f3e24d12b17eef"),
+                (27_147_460, "2bd8f2af629b279cc1a568f895ee9636f7ce2d76c69aa601e6744eaab8b4916a"),
+                (27_147_623, "bd6fcf40659771568ee180ea69bd4576a9c3d2423ae0f5f6f5afcc8b6a6fd938"),
+                (109_822_623, "946ffd50d7f2fd87e447d880525283e88bd9061e1b428d4f1d380e764d54d618"),
             ],
         )
 
@@ -187,7 +189,7 @@ class ModelBundleTests(unittest.TestCase):
         payloads = {"six.th": b"six", "guitar.ckpt": b"guitar"}
         specs = tuple(tiny_file(key, filename, payloads[filename]) for key, filename in (
             ("six_stem", "six.th"),
-            ("acoustic_guitar", "guitar.ckpt"),
+            ("shared_acoustic_electric", "guitar.ckpt"),
         ))
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -206,7 +208,7 @@ class ModelBundleTests(unittest.TestCase):
                     bundle,
                 )
                 with self.assertRaisesRegex(RuntimeError, "MODEL_(SIZE|HASH)_MISMATCH"):
-                    model_download.verify_bundle(root, ("acoustic_guitar",))
+                    model_download.verify_bundle(root, ("shared_acoustic_electric",))
 
     def test_failed_bundle_install_never_writes_the_complete_marker(self) -> None:
         payloads = {"one.ckpt": b"one", "two.ckpt": b"two"}

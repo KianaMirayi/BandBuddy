@@ -1,0 +1,44 @@
+{
+  "input": "C:\\Users\\zhaoj\\Documents\\BandBuddy\\.codex-tmp\\bd-analysis\\source-60s-15s.wav",
+  "reference": "C:\\Users\\zhaoj\\Documents\\BandBuddy\\.codex-tmp\\bd-analysis\\hq6-smoke",
+  "duration_seconds": 15.0,
+  "frames": 661500,
+  "chunk_size": 882000,
+  "overlap": 2,
+  "passes": 6,
+  "load_seconds": 1.1174807000206783,
+  "pass_seconds": {
+    "identity:0": 3.2931360999355093,
+    "identity:1": 2.8367465999908745,
+    "channel_swap:0": 2.8455859000096098,
+    "channel_swap:1": 2.844075300032273,
+    "polarity:0": 2.847854300052859,
+    "polarity:1": 2.8594893000554293
+  },
+  "inference_seconds": 17.526887500076555,
+  "baseline_separate_seconds": 31.41485719999764,
+  "speedup": 1.7923808320136947,
+  "peak_cuda_bytes": 1190870528,
+  "parameters": 51057684,
+  "comparisons": {
+    "acoustic": {
+      "reference_rms": 0.04085001083241902,
+      "candidate_rms": 0.04085001083241902,
+      "difference_rms": 0.0,
+      "difference_peak": 0.0,
+      "difference_snr_db": Infinity,
+      "correlation": 1.0
+    },
+    "electric": {
+      "reference_rms": 0.08182206037176905,
+      "candidate_rms": 0.08182206037214823,
+      "difference_rms": 6.056491431418225e-10,
+      "difference_peak": 5.960464477539063e-08,
+      "difference_snr_db": 162.61298608393048,
+      "correlation": 1.0
+    }
+  },
+  "torch": "2.11.0+cu130",
+  "cuda": "13.0",
+  "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU"
+}

@@ -1,0 +1,100 @@
+{
+  "torch": "2.11.0+cu130",
+  "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU",
+  "chunk_size": 132300,
+  "overlap": 2,
+  "trials": [
+    {
+      "batch_size": 1,
+      "seconds": 10.702724799863063,
+      "pass_seconds": {
+        "identity:0": 2.1374712999677286,
+        "identity:1": 1.7191781000001356,
+        "channel_swap:0": 1.7038466999074444,
+        "channel_swap:1": 1.7277916999300942,
+        "polarity:0": 1.7062230000738055,
+        "polarity:1": 1.7082139999838546
+      },
+      "peak_cuda_bytes": 551569408,
+      "vs_original_hq6": {
+        "reference_rms": 0.003417695595372152,
+        "candidate_rms": 0.003417723983756929,
+        "difference_rms": 4.3217233629561895e-06,
+        "difference_peak": 0.0002475827932357788,
+        "difference_snr_db": 57.961528296301,
+        "correlation": 0.999999200543518,
+        "one_second_snr_min_db": 53.71666218944078,
+        "one_second_snr_median_db": 58.162349406321155
+      }
+    },
+    {
+      "batch_size": 2,
+      "seconds": 8.849536699824966,
+      "pass_seconds": {
+        "identity:0": 1.5191387999802828,
+        "identity:1": 1.4489135999465361,
+        "channel_swap:0": 1.4800288999686018,
+        "channel_swap:1": 1.4405353999463841,
+        "polarity:0": 1.4975357999792323,
+        "polarity:1": 1.4633842000039294
+      },
+      "peak_cuda_bytes": 745549312,
+      "vs_original_hq6": {
+        "reference_rms": 0.003417695595372152,
+        "candidate_rms": 0.0034178527655089773,
+        "difference_rms": 4.093305507234985e-06,
+        "difference_peak": 0.0002264752984046936,
+        "difference_snr_db": 58.433184378505175,
+        "correlation": 0.9999992838717047,
+        "one_second_snr_min_db": 54.06006654560569,
+        "one_second_snr_median_db": 58.29377695683368
+      }
+    },
+    {
+      "batch_size": 4,
+      "seconds": 8.360415099887177,
+      "pass_seconds": {
+        "identity:0": 1.4166473998920992,
+        "identity:1": 1.3389266999438405,
+        "channel_swap:0": 1.4141367999836802,
+        "channel_swap:1": 1.3844262000638992,
+        "polarity:0": 1.3950962000526488,
+        "polarity:1": 1.4111817999510095
+      },
+      "peak_cuda_bytes": 1129449472,
+      "vs_original_hq6": {
+        "reference_rms": 0.003417695595372152,
+        "candidate_rms": 0.0033792448405112045,
+        "difference_rms": 6.727582036714708e-05,
+        "difference_peak": 0.0023230239748954773,
+        "difference_snr_db": 34.11748752829843,
+        "correlation": 0.999868061533017,
+        "one_second_snr_min_db": 29.318812896706454,
+        "one_second_snr_median_db": 32.95699333454825
+      }
+    },
+    {
+      "batch_size": 8,
+      "seconds": 8.235716300085187,
+      "pass_seconds": {
+        "identity:0": 1.398695099982433,
+        "identity:1": 1.3763568999711424,
+        "channel_swap:0": 1.334209299995564,
+        "channel_swap:1": 1.3838463000720367,
+        "polarity:0": 1.376751200063154,
+        "polarity:1": 1.3658575000008568
+      },
+      "peak_cuda_bytes": 1904271872,
+      "vs_original_hq6": {
+        "reference_rms": 0.003417695595372152,
+        "candidate_rms": 0.0033792093853376986,
+        "difference_rms": 6.72712382724567e-05,
+        "difference_peak": 0.0023072585463523865,
+        "difference_snr_db": 34.11807913645709,
+        "correlation": 0.9998682049356603,
+        "one_second_snr_min_db": 29.30419202657817,
+        "one_second_snr_median_db": 32.961361524543776
+      }
+    }
+  ]
+}

@@ -14,6 +14,7 @@ import {
   normalizeTrackStates,
   type AppSettings,
   type GuitarSplitStatus,
+  type GuitarSeparationQuality,
   type JobRecord,
   type JobStatus,
   type MusicalKeyAnalysis,
@@ -270,6 +271,7 @@ export interface StoredStemInput {
 export interface GuitarSplitJobPayload {
   sourceRelPath: string
   storageFormat: StemStorageFormat
+  guitarQuality?: GuitarSeparationQuality
   baseSeparationId: string
   expectedActiveSeparationId: string
   baseEncodingGain: number
@@ -631,6 +633,7 @@ export class BandBuddyDatabase {
       keepSource: true,
       closeToTrayWhileWorking: true,
       highQualityStems: false,
+      guitarSeparationQuality: 'balanced',
       network: {
         proxyMode: 'system',
         proxyUrl: '',

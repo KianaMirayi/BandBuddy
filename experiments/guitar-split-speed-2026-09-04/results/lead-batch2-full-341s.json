@@ -1,0 +1,31 @@
+{
+  "torch": "2.11.0+cu130",
+  "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU",
+  "chunk_size": 132300,
+  "overlap": 2,
+  "trials": [
+    {
+      "batch_size": 2,
+      "seconds": 193.27013049973175,
+      "pass_seconds": {
+        "identity:0": 31.536615599994548,
+        "identity:1": 32.098525999928825,
+        "channel_swap:0": 32.19976249989122,
+        "channel_swap:1": 32.46705860004295,
+        "polarity:0": 32.39755679992959,
+        "polarity:1": 32.57061099994462
+      },
+      "peak_cuda_bytes": 746011136,
+      "vs_original_hq6": {
+        "reference_rms": 0.04685578140720844,
+        "candidate_rms": 0.04685731191595641,
+        "difference_rms": 3.18752508097574e-05,
+        "difference_peak": 0.0013755857944488525,
+        "difference_snr_db": 63.34619148500415,
+        "correlation": 0.9999997691476439,
+        "one_second_snr_min_db": 36.209363098399486,
+        "one_second_snr_median_db": 56.23291116168552
+      }
+    }
+  ]
+}
