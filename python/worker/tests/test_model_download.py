@@ -68,7 +68,7 @@ class ModelBundleTests(unittest.TestCase):
             [(item.size, item.sha256) for item in model_download.BUNDLE_FILES],
             [
                 (54_996_327, "34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd"),
-                (102_410_137, "054c13fc97ff863df55c1e8f0ab620a7697df38a98c564e6d8aa4e314d8fa391"),
+                (102_410_137, "183607bffbebdb43dcb3fd583b7cbe3c77fb55aea886cbd1e3aa316d9148698c"),
                 (337_073_664, "b3c47bca33609ca1ba0bb2d2076410bfd1eb941b051b72afc1f3e24d12b17eef"),
                 (27_147_460, "2bd8f2af629b279cc1a568f895ee9636f7ce2d76c69aa601e6744eaab8b4916a"),
                 (27_147_623, "bd6fcf40659771568ee180ea69bd4576a9c3d2423ae0f5f6f5afcc8b6a6fd938"),

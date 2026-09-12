@@ -207,8 +207,9 @@ describe.skipIf(!hasTools)('real local video preprocessing and library lifecycle
 
   it('remuxes common H.264 MP4 without re-encoding or retaining its original audio', async () => {
     const input = path.join(root, 'common-h264.mp4')
+    const encoder = process.platform === 'darwin' ? 'libx264' : 'libopenh264'
     const generated = await runProcess(media.tool('ffmpeg')!, [
-      '-y', '-v', 'error', '-i', source, '-c:v', 'libopenh264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', input
+      '-y', '-v', 'error', '-i', source, '-c:v', encoder, '-pix_fmt', 'yuv420p', '-c:a', 'aac', input
     ])
     expect(generated.code, generated.stderr).toBe(0)
     const playback = await media.prepareVideo(input, root, path.join(root, 'copied-h264'), new AbortController().signal)

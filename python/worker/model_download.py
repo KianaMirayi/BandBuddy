@@ -51,7 +51,7 @@ BUNDLE_FILES: tuple[BundleFile, ...] = (
         "shared_acoustic_electric",
         "bs_mega_53stem_acoustic-electric_shared_mvsep.ckpt",
         102_410_137,
-        "054c13fc97ff863df55c1e8f0ab620a7697df38a98c564e6d8aa4e314d8fa391",
+        "183607bffbebdb43dcb3fd583b7cbe3c77fb55aea886cbd1e3aa316d9148698c",
     ),
     BundleFile(
         "lead_rhythm_hq",
