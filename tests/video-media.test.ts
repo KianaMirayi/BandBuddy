@@ -82,6 +82,25 @@ describe.skipIf(!hasTools)('real local video preprocessing and library lifecycle
     if (root) await rm(root, { recursive: true, force: true })
   })
 
+  it('imports uppercase AAC, detects duplicates and decodes it to playable audio', async () => {
+    const input = path.join(root, '音频 支持.AAC')
+    const generated = await runProcess(media.tool('ffmpeg')!, [
+      '-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=880:duration=1', '-c:a', 'aac', '-f', 'adts', input
+    ])
+    expect(generated.code, generated.stderr).toBe(0)
+    const runtime = { getInfo: () => ({ status: 'ready' }) }
+    const imports = new ImportService(paths, database, media, runtime as never, logger as never, vi.fn(), vi.fn())
+    const imported = await imports.importSource({ filePath: input })
+    expect(imported.songId).toBeTruthy()
+    const song = database.getSongRow(imported.songId!)!
+    expect(song.duration_ms).toBeGreaterThan(900)
+    expect(song.source_rel_path).toMatch(/original\.aac$/)
+    const decoded = await media.normalize(input, path.join(root, 'aac.part.flac'), path.join(root, 'aac.flac'))
+    expect(decoded).toMatchObject({ sampleRate: 44100, channels: 2 })
+    expect((await imports.importSource({ filePath: input })).duplicate?.id).toBe(imported.songId)
+    database.deleteSongRecord(imported.songId!)
+  }, 15_000)
+
   it('queues a copied video, feeds extracted WAV to separation, and serves seekable muted video', async () => {
     const workerInputs: string[] = []
     let releaseGuitar = (): void => undefined
@@ -341,7 +360,7 @@ describe.skipIf(!hasTools)('real local video preprocessing and library lifecycle
       expect(song.practice.tracks).toHaveLength(9)
       expect(song.practice.tracks.find((track) => track.stemType === 'guitar')).toMatchObject({ gainDb: -5, solo: true, outputChannelPair: 3 })
       expect(song.practice.tracks.find((track) => track.stemType === 'lead_guitar')).toMatchObject({ gainDb: 0, muted: false, solo: false })
-      expect(upgraded.getSettings()).toMatchObject({ debugMode: true, highQualityStems: false })
+      expect(upgraded.getSettings()).toMatchObject({ debugMode: true, highQualityStems: false, desktopLyricsFontSize: 24 })
     } finally { upgraded.close() }
   })
 })

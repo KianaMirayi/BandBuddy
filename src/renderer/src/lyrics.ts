@@ -6,6 +6,7 @@ const current = document.querySelector<HTMLElement>('#current-lyric')!
 const next = document.querySelector<HTMLElement>('#next-lyric')!
 
 window.desktopLyrics.onUpdate((payload) => {
+  card.style.setProperty('--lyric-font-size', `${payload.fontSize ?? 24}px`)
   const artist = payload.artist.trim()
   meta.textContent = artist ? `${payload.title} · ${artist}` : payload.title
   current.textContent = payload.currentLines.join('\n') || payload.title

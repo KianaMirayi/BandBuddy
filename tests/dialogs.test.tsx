@@ -44,6 +44,38 @@ describe('library dialogs', () => {
     expect(screen.queryByText(/导入已有分轨/)).toBeNull()
   })
 
+  it('accepts a dropped AAC and submits its native path', async () => {
+    const nativePath = 'C:/Music/新歌曲.AAC'
+    vi.spyOn(window.bandbuddy.library, 'getPathForFile').mockReturnValue(nativePath)
+    const submit = vi.spyOn(window.bandbuddy.library, 'importSource')
+    render(<ImportDialog open onOpenChange={vi.fn()} onImported={vi.fn()} onOpenDuplicate={vi.fn()} onNeedsRuntime={vi.fn()} />)
+    const zone = screen.getByRole('button', { name: /选择音频或视频文件/ })
+    fireEvent.drop(zone, { dataTransfer: { files: [new File(['audio'], '新歌曲.AAC')] } })
+    expect((screen.getByLabelText('歌曲标题') as HTMLInputElement).value).toBe('新歌曲')
+    fireEvent.click(screen.getByRole('button', { name: '导入并处理' }))
+    await waitFor(() => expect(submit).toHaveBeenCalledWith(expect.objectContaining({ filePath: nativePath, title: '新歌曲' })))
+  })
+
+  it('rejects unsupported and multiple dropped files', () => {
+    render(<ImportDialog open onOpenChange={vi.fn()} onImported={vi.fn()} onOpenDuplicate={vi.fn()} onNeedsRuntime={vi.fn()} />)
+    const zone = screen.getByRole('button', { name: /选择音频或视频文件/ })
+    fireEvent.drop(zone, { dataTransfer: { files: [new File([''], 'notes.txt')] } })
+    expect(screen.getByText('不支持此文件格式，请拖入音频或视频文件')).toBeTruthy()
+    fireEvent.drop(zone, { dataTransfer: { files: [new File([''], 'a.mp3'), new File([''], 'b.mp4')] } })
+    expect(screen.getByText('请每次拖入一个音频或视频文件')).toBeTruthy()
+    expect((screen.getByRole('button', { name: '导入并处理' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('saves desktop lyric font size', async () => {
+    const settings = await window.bandbuddy.settings.get()
+    const runtime = await window.bandbuddy.runtime.get()
+    const update = vi.spyOn(window.bandbuddy.settings, 'update')
+    render(<SettingsDrawer open onOpenChange={vi.fn()} runtime={runtime} settings={settings} onSaved={vi.fn()} onRefresh={vi.fn()} />)
+    fireEvent.change(screen.getByRole('slider', { name: /桌面歌词文字大小/ }), { target: { value: '48' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }))
+    await waitFor(() => expect(update).toHaveBeenCalledWith(expect.objectContaining({ desktopLyricsFontSize: 48 })))
+  })
+
   it('offers metadata editing from the song actions menu', () => {
     const onOpenChange = vi.fn()
     const onEditMetadata = vi.fn()

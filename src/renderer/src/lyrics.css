@@ -26,7 +26,7 @@ body {
   height: 100%;
   padding: 12px 28px 14px;
   display: grid;
-  grid-template-rows: 16px minmax(44px, 1fr) 22px;
+  grid-template-rows: 16px minmax(44px, 1fr) calc(var(--lyric-font-size, 24px) * 0.6 + 6px);
   align-items: center;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.14);
@@ -82,7 +82,7 @@ header i {
   background-clip: text;
   color: transparent;
   filter: drop-shadow(0 2px 2px rgba(0,0,0,.65));
-  font-size: clamp(21px, 2.25vw, 30px);
+  font-size: var(--lyric-font-size, 24px);
   font-weight: 750;
   line-height: 1.18;
   letter-spacing: .015em;
@@ -94,7 +94,7 @@ header i {
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: calc(var(--lyric-font-size, 24px) * 0.5);
 }
 
 #next-lyric[hidden] { visibility: hidden; }

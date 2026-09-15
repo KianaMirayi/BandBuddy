@@ -325,6 +325,7 @@ export interface LyricsDocument {
 }
 
 export interface DesktopLyricsPayload {
+  fontSize?: number
   title: string
   artist: string
   currentLines: string[]
@@ -523,6 +524,7 @@ export interface NetworkSettings {
 }
 
 export interface AppSettings {
+  desktopLyricsFontSize: number
   libraryRoot: string
   runtimeRoot: string
   modelRoot: string

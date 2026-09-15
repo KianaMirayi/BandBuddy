@@ -1,0 +1,20 @@
+Create one polished Chinese promotional poster for BandBuddy, a desktop music practice companion. Use case: ads-marketing. Portrait 3:4 composition, high resolution, editorial music magazine art direction, beautiful readable Chinese typography. Match the real software visual design: warm ivory paper #f5f1ea and #fbf8f3, charcoal ink #1b1814, warm grey thin rules #ded7cd, muted olive, dusty blue, tan and mauve audio waveforms. Gentle paper grain, restrained shadows, softly rounded panels, black vinyl record with small brass center as a tasteful hero accent. Elegant and calm, musician oriented, no neon, no futuristic tech aesthetic.
+
+Top brand: a small black circular audio-wave mark next to exact word "BandBuddy", small descriptor "音乐练习伴侣". Large striking Chinese headline in beautiful dark Songti serif: "把喜欢的歌，练成自己的。" Subheading: "听清每个声部，练好每个小节。"
+
+Middle hero: a beautifully composed stylized product interface illustration on ivory, with multitrack colored waveforms, small mute/solo controls and a dark charcoal transport bar with play, A–B and 0.8× controls. A vinyl record partially overlaps a corner. It should evoke the actual warm cream desktop practice app, not a complex invented DAW. Keep interface illustration secondary to readable marketing text, no fake song titles, no tiny paragraphs.
+
+Below the hero, well-spaced editorial feature grid, 2 columns and 4 rows, minimal fine-line musical icons, exact feature titles and brief exact descriptions:
+"智能分轨" / "人声、鼓、贝斯等声部独立控制"
+"吉他细分" / "原声 · 主音 · 节奏吉他"
+"变速变调" / "放慢难句，调整到适合你的调"
+"A–B 循环" / "锁定片段，反复练习"
+"节拍与调性" / "BPM 与调性识别 · 节拍器 · 预备拍"
+"多轨录音" / "保留多个 Take，记录每次进步"
+"排练编排" / "编排曲目，连续播放与整场录音"
+"视频跟练" / "同步播放画面，跟着视频练习"
+
+Bottom thin divider, one clearly readable secondary feature line: "本地曲库  /  桌面歌词  /  练习自动保存  /  分轨与混音导出"
+Footer small brand promise: "你的音乐，你的练习空间。"
+
+Ensure all Chinese text is accurate, sharp, legible with generous margins. Clear hierarchy, spacious balanced composition, premium professionally designed finished poster, cohesive custom layout rather than generic SaaS cards. Only show user-facing features. No algorithms, no model names, no implementation, no quality guarantees, no pricing, no QR codes, no invented URLs, no download buttons, no version numbers.

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BandBuddyApi } from '@shared/bridge.js'
 import { IPC } from '@shared/channels.js'
 
@@ -12,6 +12,7 @@ const api: BandBuddyApi = {
   library: {
     list: (input = {}) => ipcRenderer.invoke(IPC.libraryList, input),
     get: (songId) => ipcRenderer.invoke(IPC.libraryGet, songId),
+    getPathForFile: (file) => webUtils.getPathForFile(file),
     chooseSource: () => ipcRenderer.invoke(IPC.libraryChooseSource),
     importSource: (options) => ipcRenderer.invoke(IPC.libraryImportSource, options),
     importLyrics: (songId) => ipcRenderer.invoke(IPC.libraryImportLyrics, songId),

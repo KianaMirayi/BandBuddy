@@ -12,6 +12,7 @@ export function installFixtureBridge(): void {
     runtimeRoot: 'C:\\Users\\Musician\\BandBuddy\\envs',
     modelRoot: 'C:\\Users\\Musician\\BandBuddy\\envs\\models',
     debugMode: false,
+    desktopLyricsFontSize: 24,
     highQualityStems: false,
     guitarSeparationQuality: 'balanced' as const,
     preferredDevice: 'auto' as const,
@@ -41,6 +42,7 @@ export function installFixtureBridge(): void {
     library: {
       list: async () => fixtureSongs,
       get: async (id) => { const song = fixtureSongs.find((item) => item.id === id); return song ? fixtureDetail(song) : null },
+      getPathForFile: () => '',
       chooseSource: async () => null,
       importSource: async () => ({ songId: null, jobId: null, duplicate: null }),
       requestGuitarSplit: async () => null,

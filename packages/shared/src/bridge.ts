@@ -40,6 +40,7 @@ export interface BandBuddyApi {
   library: {
     list(input?: { query?: string; filter?: 'all' | 'favorite' | 'processing' | 'recent' }): Promise<SongSummary[]>
     get(songId: string): Promise<SongDetail | null>
+    getPathForFile(file: File): string
     chooseSource(): Promise<SourceChoice | null>
     importSource(options: ImportSourceOptions): Promise<ImportResult>
     importLyrics(songId: string): Promise<SongDetail | null>

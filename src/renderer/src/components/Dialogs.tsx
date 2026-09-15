@@ -45,6 +45,7 @@ import {
   type SongSummary,
   type StemType
 } from '@shared/domain.js'
+import { SOURCE_MEDIA_EXTENSIONS } from '@shared/media-formats.js'
 import { applyRuntimeSourcePreset, matchRuntimeSourcePreset, type RuntimeSourcePreset } from '@shared/runtime-sources.js'
 import { formatDate, formatTime, isCancellationError, statusLabel, toUserErrorMessage } from '../utils.js'
 
@@ -77,6 +78,7 @@ export function ImportDialog({
   onOpenDuplicate(songId: string): void
   onNeedsRuntime(): void
 }): React.JSX.Element {
+  const [dragging, setDragging] = useState(false)
   const [source, setSource] = useState<{ path: string; name: string } | null>(null)
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
@@ -87,14 +89,36 @@ export function ImportDialog({
   useEffect(() => {
     if (!open) return
     setSource(null); setTitle(''); setArtist('')
-    setError(''); setDuplicate(null)
+    setError(''); setDuplicate(null); setDragging(false)
   }, [open])
 
   const chooseSource = async (): Promise<void> => {
-    const choice = await window.bandbuddy.library.chooseSource()
-    if (!choice) return
-    setSource(choice)
-    if (!title) setTitle(choice.inferredTitle)
+    if (busy) return
+    try {
+      const choice = await window.bandbuddy.library.chooseSource()
+      if (!choice) return
+      setSource(choice)
+      setError(''); setDuplicate(null)
+      if (!title || title === source?.name.replace(/\.[^.]+$/, '')) setTitle(choice.inferredTitle)
+    } catch (reason) { setError(toUserErrorMessage(reason, '无法选择文件')) }
+  }
+
+  const dropSource = (event: React.DragEvent): void => {
+    event.preventDefault(); event.stopPropagation(); setDragging(false)
+    if (busy) return
+    const files = Array.from(event.dataTransfer.files)
+    if (files.length !== 1) { setError('请每次拖入一个音频或视频文件'); return }
+    const file = files[0]!
+    if (!SOURCE_MEDIA_EXTENSIONS.has(file.name.slice(file.name.lastIndexOf('.')).toLowerCase())) {
+      setError('不支持此文件格式，请拖入音频或视频文件'); return
+    }
+    try {
+      const path = window.bandbuddy.library.getPathForFile(file)
+      if (!path) throw new Error('无法读取文件路径，请使用点击选择文件')
+      setSource({ path, name: file.name })
+      if (!title || title === source?.name.replace(/\.[^.]+$/, '')) setTitle(file.name.replace(/\.[^.]+$/, ''))
+      setError(''); setDuplicate(null)
+    } catch (reason) { setError(toUserErrorMessage(reason, '无法读取拖入的文件')) }
   }
 
   const submit = async (forceDuplicate = false): Promise<void> => {
@@ -117,8 +141,13 @@ export function ImportDialog({
       <Dialog.Content className="dialog-content import-dialog" data-dialog-open="true" aria-describedby={undefined}>
         <Dialog.Title>导入音乐</Dialog.Title><Dialog.Close className="dialog-close"><X /></Dialog.Close>
         <p className="dialog-lead">源文件会复制到受管曲库。视频会先提取音频再分轨，所有处理均在本机完成。</p>
-        <div className={`drop-zone ${source ? 'selected' : ''}`} onClick={() => void chooseSource()}>
-          <span>{source ? <Check size={25} /> : <Upload size={25} />}</span><b>{source?.name ?? '选择音频或视频文件'}</b><small>{source ? '点击重新选择' : '音频：MP3 / WAV / FLAC / M4A / AAC / NCM · 视频：MP4 / M4V / MOV / MKV / WebM / AVI'}</small>
+        <div className={`drop-zone ${source ? 'selected' : ''} ${dragging ? 'is-dragging' : ''}`} role="button" tabIndex={busy ? -1 : 0} aria-disabled={busy}
+          onClick={() => void chooseSource()}
+          onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void chooseSource() } }}
+          onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = busy ? 'none' : 'copy'; if (!busy) setDragging(true) }}
+          onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false) }}
+          onDrop={dropSource}>
+          <span>{source ? <Check size={25} /> : <Upload size={25} />}</span><b>{source?.name ?? '选择音频或视频文件'}</b><small>{source ? '点击重新选择，或拖入文件替换' : '可直接拖入文件 · 音频：MP3 / WAV / FLAC / M4A / AAC / NCM · 视频：MP4 / M4V / MOV / MKV / WebM / AVI'}</small>
         </div>
         <div className="form-row"><label>歌曲标题<input maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="可选，默认使用文件名" /></label><label>艺术家<input maxLength={200} value={artist} onChange={(event) => setArtist(event.target.value)} placeholder="可选" /></label></div>
         {duplicate && <div className="inline-warning"><AlertTriangle /><span><b>曲库已有“{duplicate.title}”</b><small>可打开已有歌曲，或仍然创建一份副本。</small></span><button onClick={() => { onOpenChange(false); onOpenDuplicate(duplicate.id) }}>打开已有</button><button onClick={() => void submit(true)}>仍创建副本</button></div>}
@@ -293,6 +322,13 @@ export function SettingsDrawer({
       <p className="security-note">仅影响后续分轨；已有歌曲需重新分轨才会改变格式</p>
     </section>
     <section className="settings-section"><h3><SlidersHorizontal />性能与播放</h3><div className="settings-grid"><label>首选计算设备<select value={draft.preferredDevice} onChange={(event) => setDraft({ ...draft, preferredDevice: event.target.value as AppSettings['preferredDevice'] })}><option value="auto">自动：CUDA → MPS → CPU</option><option value="cuda">NVIDIA CUDA（不可用时回退）</option><option value="mps">Apple MPS（不可用时回退）</option><option value="cpu">CPU</option></select></label><label>关闭窗口时<select value={draft.closeToTrayWhileWorking ? 'tray' : 'quit'} onChange={(event) => setDraft({ ...draft, closeToTrayWhileWorking: event.target.value === 'tray' })}><option value="tray">有任务时留在托盘</option><option value="quit">直接退出</option></select></label><label>音频输出<select value={draft.audioOutputDeviceId} onChange={(event) => setDraft({ ...draft, audioOutputDeviceId: event.target.value })}><option value="">系统默认输出</option>{audioOutputs.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `音频输出 ${index + 1}`}</option>)}</select></label><label>延迟模式<select value={draft.latencyMode} onChange={(event) => setDraft({ ...draft, latencyMode: event.target.value as AppSettings['latencyMode'] })}><option value="interactive">低延迟</option><option value="balanced">平衡</option><option value="playback">稳定播放</option></select></label></div></section>
+    <section className="settings-section"><h3><FileText />桌面歌词</h3>
+      <label>桌面歌词文字大小 · {draft.desktopLyricsFontSize} px
+        <input type="range" min={16} max={64} step={1} value={draft.desktopLyricsFontSize} onChange={(event) => setDraft({ ...draft, desktopLyricsFontSize: Number(event.target.value) })} />
+      </label>
+      <p style={{ fontSize: draft.desktopLyricsFontSize, overflowWrap: 'anywhere' }}>桌面歌词预览</p>
+      <p className="source-note">16–64 px，保存后生效。练习室与排练室共用此字号。</p>
+    </section>
     <section className="settings-section recording-device-settings"><h3><AudioLines />练习录音设备</h3>
       <p className="security-note">如需监听自己的输入，请使用声卡或调音台的硬件直通监听。</p>
       <div className="settings-grid">

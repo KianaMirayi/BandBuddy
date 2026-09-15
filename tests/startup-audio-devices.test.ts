@@ -17,6 +17,7 @@ function appSettings(): AppSettings {
     runtimeRoot: 'runtime',
     modelRoot: 'models',
     debugMode: false,
+    desktopLyricsFontSize: 24,
     highQualityStems: false,
     guitarSeparationQuality: 'balanced',
     preferredDevice: 'auto',

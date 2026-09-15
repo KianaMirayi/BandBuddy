@@ -654,3 +654,6 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 12px; heigh
   .rehearsal-palette { max-height: calc(100vh - 176px); }
   .rehearsal-song-assets { max-height: calc(100vh - 320px); }
 }
+
+.drop-zone.is-dragging { border-color: var(--accent, #b88936); background: rgba(184, 137, 54, .12); }
+.drop-zone[aria-disabled="true"] { cursor: wait; opacity: .65; }

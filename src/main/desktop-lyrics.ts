@@ -14,6 +14,13 @@ export class DesktopLyricsWindow {
   private loadPromise: Promise<void> | null = null
   private latestPayload: DesktopLyricsPayload | null = null
   private shouldBeVisible = false
+  private fontSize = 24
+
+  setFontSize(size: number): void {
+    this.fontSize = size
+    if (this.window && !this.window.isDestroyed()) this.position(this.window)
+    if (this.latestPayload) this.update(this.latestPayload)
+  }
 
   constructor(private readonly options: DesktopLyricsWindowOptions) {}
 
@@ -33,9 +40,13 @@ export class DesktopLyricsWindow {
   }
 
   update(payload: DesktopLyricsPayload): void {
+    const layoutChanged = this.latestPayload?.fontSize !== this.fontSize
+      || this.latestPayload?.currentLines.length !== payload.currentLines.length
+    payload = { ...payload, fontSize: this.fontSize }
     this.latestPayload = payload
     const window = this.window
     if (!window || window.isDestroyed() || window.webContents.isLoading()) return
+    if (layoutChanged) this.position(window)
     window.webContents.send(IPC.eventDesktopLyricsUpdate, payload)
   }
 
@@ -112,9 +123,10 @@ export class DesktopLyricsWindow {
   }
 
   private position(window: BrowserWindow): void {
-    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+    const display = window.isVisible() ? screen.getDisplayMatching(window.getBounds()) : screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
     const width = Math.min(1000, Math.max(620, Math.round(display.workArea.width * 0.72)))
-    const height = 142
+    const lines = Math.max(1, this.latestPayload?.currentLines.length ?? 1)
+    const height = Math.max(142, Math.ceil(66 + this.fontSize * (1.18 * lines + 0.6)))
     window.setBounds({
       x: Math.round(display.workArea.x + (display.workArea.width - width) / 2),
       y: display.workArea.y + display.workArea.height - height - 28,

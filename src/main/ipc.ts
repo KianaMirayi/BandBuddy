@@ -152,6 +152,7 @@ export function registerIpc(services: IpcServices): void {
       mkdirSync(directory, { recursive: true })
     }
     const saved = services.database.saveSettings(settings)
+    services.desktopLyrics.setFontSize(saved.desktopLyricsFontSize)
     services.logger.setDebugMode(saved.debugMode)
     services.emitSettings()
     void services.runtime.detect()
@@ -242,7 +243,11 @@ export function registerIpc(services: IpcServices): void {
   handle(IPC.rehearsalRecordingStop, () => services.rehearsalRecording.stop())
   handle(IPC.rehearsalRecordingCancel, () => services.rehearsalRecording.cancel())
 
-  handle(IPC.desktopLyricsSetVisible, (_event, input) => services.desktopLyrics.setVisible(z.boolean().parse(input)))
+  handle(IPC.desktopLyricsSetVisible, (_event, input) => {
+    const visible = z.boolean().parse(input)
+    services.desktopLyrics.setFontSize(services.database.getSettings().desktopLyricsFontSize)
+    return services.desktopLyrics.setVisible(visible)
+  })
   ipcMain.on(IPC.desktopLyricsUpdate, (event, input) => {
     try {
       assertTrustedSender(event, services.getWindow(), services.isTrustedUrl)

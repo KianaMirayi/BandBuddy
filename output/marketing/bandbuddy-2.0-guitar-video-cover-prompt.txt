@@ -1,0 +1,10 @@
+Create a new landscape 16:9 video cover thumbnail for BandBuddy, matching the attached previous promotional poster's brand style. Use the supplied image only as visual brand reference, not as a layout to preserve. Warm ivory paper, bold charcoal typography, warm sunlit music studio, black vinyl and subtle brass accents, low-saturation sage green and tan audio waveforms. Professional premium music software video thumbnail. Much simpler and more dramatic than the supplied feature poster, very legible at small thumbnail size.
+
+Exact main text, arranged in strong hierarchy:
+"BandBuddy" as clear top-left brand.
+"2.0" extremely large, bold and prominent, with a small accompanying "版本更新".
+"节奏吉他 / 主音吉他"
+"独立分轨" as an exceptionally bold large headline.
+Only these words; no feature lists or footer paragraphs.
+
+Design: left 55 percent predominantly typography on warm ivory, with enormous 2.0 and bold Chinese headlines. Right 45 percent a beautiful close-up electric guitar with realistic six strings, partially cropped aesthetically, and two elegant floating cream audio track panels showing visibly distinct waveforms. Top track clearly labeled "节奏吉他", lower track clearly labeled "主音吉他". Muted sage green rhythm waveform and warm amber lead waveform. Suggest musical separation visually, not an implementation diagram. Small black vinyl accent allowed. Elegant dark accents give stronger thumbnail contrast while retaining the warm cream product identity. Generous safe margins, no clipped letters, beautifully typeset correct Chinese. Avoid clutter, small paragraphs, additional text, model names, technical implementation, unsupported claims, neon colors, fake play button and watermarks. Deliver one polished horizontal 16:9 video thumbnail, high resolution.

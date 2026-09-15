@@ -626,6 +626,7 @@ export class BandBuddyDatabase {
       runtimeRoot: this.paths.pythonRoot,
       modelRoot: this.paths.modelRoot,
       debugMode: false,
+      desktopLyricsFontSize: 24,
       preferredDevice: 'auto',
       audioOutputDeviceId: '',
       latencyMode: 'balanced',

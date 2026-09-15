@@ -143,6 +143,7 @@ export const networkSettingsSchema = z.object({
 })
 
 export const appSettingsSchema = z.object({
+  desktopLyricsFontSize: z.number().int().min(16).max(64).default(24),
   libraryRoot: z.string().min(3).max(1000),
   runtimeRoot: z.string().min(3).max(1000),
   modelRoot: z.string().min(3).max(1000),
