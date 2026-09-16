@@ -230,12 +230,30 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 12px; heigh
 .ms-buttons { display: flex; gap: 7px; }
 .ms-buttons button { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 5px; background: rgba(255,255,255,.42); font-size: 11px; }
 .ms-buttons button.active { color: white; background: #241f19; border-color: #241f19; }
-.track-gain { display: grid; grid-template-columns: 1fr 75px; align-items: center; gap: 9px; }
-.track-gain em { font-size: 9px; font-style: normal; color: #756e65; white-space: nowrap; }
+/* Silenced by another track's solo, not by its own mute. Same look as .active. */
+.ms-buttons button.is-implied-muted { color: white; background: #241f19; border-color: #241f19; }
+/* minmax(0, …) keeps the slider from overflowing its column: a bare 1fr cannot shrink
+   below the range input's 129px intrinsic width, which pushed the dB readout into OUT. */
+.track-gain { display: grid; grid-template-columns: minmax(0, 1fr) 75px; align-items: center; gap: 9px; }
+/* Level cell: plain text until double-clicked, so it never reads as a form field. */
+.level-readout, .level-editor { box-sizing: border-box; width: 100%; height: 20px; padding: 0 4px; border: 1px solid transparent; border-radius: 5px; font-size: 9px; font-variant-numeric: tabular-nums; text-align: left; }
+.level-readout { overflow: hidden; color: #756e65; background: transparent; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+.level-readout:hover:not(:disabled) { color: #514a42; background: rgba(255,255,255,.62); border-color: var(--border); }
+.level-readout:disabled { cursor: default; }
+.level-readout:focus-visible { outline: none; border-color: #8e7659; box-shadow: 0 0 0 2px rgba(142,118,89,.18); }
+/* Same metrics as the readout: opening the editor cannot shift the OUT column. */
+.level-editor { color: #241f19; background: #fff; border-color: #8e7659; box-shadow: 0 0 0 2px rgba(142,118,89,.18); }
 .track-output-route { display: grid; grid-template-rows: 10px 28px; align-items: center; gap: 2px; }
 .track-output-route small { padding-left: 2px; color: #8c8378; font-size: 7px; font-weight: 700; letter-spacing: .1em; line-height: 1; }
-.track-output-route select { width: 100%; height: 28px; padding: 0 4px; border: 1px solid var(--border); border-radius: 5px; color: #514a42; background: rgba(255,255,255,.68); font-size: 9px; font-variant-numeric: tabular-nums; }
-.track-output-route select:disabled { opacity: .55; }
+.track-output-route button { width: 100%; height: 28px; padding: 0 4px 0 5px; display: flex; align-items: center; justify-content: space-between; gap: 3px; border: 1px solid var(--border); border-radius: 5px; color: #514a42; background: rgba(255,255,255,.68); font-size: 9px; font-variant-numeric: tabular-nums; }
+.track-output-route button:disabled { opacity: .55; }
+.track-output-route button > svg { flex: 0 0 auto; color: #8c8378; }
+/* Popup list for the custom select; Chromium's native one cannot be themed. */
+.select-menu { position: fixed; z-index: 95; padding: 4px; display: grid; gap: 1px; border: 1px solid var(--border); border-radius: 7px; background: #fffdf9; box-shadow: 0 12px 28px rgba(50,39,28,.18); }
+.select-menu-option { height: 24px; padding: 0 7px; display: flex; align-items: center; border-radius: 5px; color: #514a42; background: transparent; font-size: 10px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.select-menu-option.is-active { background: rgba(142,118,86,.12); }
+.select-menu-option[aria-selected="true"] { color: #241f19; background: rgba(142,118,86,.2); font-weight: 650; }
+.select-menu-option[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .recording-track { min-height: 132px; height: 14vh; grid-template-columns: 24px 125px 72px 75px 175px minmax(0, 1fr); background: rgba(184,79,69,.025); }
 .recording-track.is-recording { box-shadow: inset 3px 0 #b84f45; background: rgba(184,79,69,.055); }
 .recording-identity { grid-template-rows: auto auto auto; }
@@ -602,7 +620,8 @@ input[type="range"]::-webkit-slider-thumb { appearance: none; width: 12px; heigh
 .record-track-icon { position: relative; width: 32px; height: 42px; display: flex; align-items: center; justify-content: center; overflow: hidden; color: #eee6da; border-radius: 7px; background: #2d2822; }.record-track-icon i { position: absolute; left: 0; right: 0; bottom: 0; opacity: .5; background: linear-gradient(#d3ad55, #b54d43); }.record-track-icon svg { position: relative; z-index: 1; }
 .record-track-name { min-width: 0; width: 100%; height: 32px; padding: 0 6px; border: 1px solid transparent; outline: 0; border-radius: 6px; background: transparent; font-weight: 650; }.record-track-name:hover:not(:disabled), .record-track-name:focus { border-color: var(--border); background: #fff; }
 .record-track-ms { display: flex; gap: 4px; }.record-track-ms button { width: 27px; height: 27px; border-radius: 5px; color: #766d63; background: #e6e0d7; font-size: 9px; font-weight: 700; }.record-track-ms button.active { color: white; background: #403831; }
-.record-track-gain { min-width: 0; display: grid; grid-template-columns: minmax(65px, 1fr) auto; align-items: center; gap: 6px; }.record-track-gain input { min-width: 0; width: 100%; accent-color: #7e6951; }.record-track-gain small { min-width: 65px; color: #81786e; text-align: right; font-size: 7px; }
+.record-track-ms button.is-implied-muted { color: white; background: #403831; }
+.record-track-gain { min-width: 0; display: grid; grid-template-columns: minmax(65px, 1fr) auto; align-items: center; gap: 6px; }.record-track-gain input { min-width: 0; width: 100%; accent-color: #7e6951; }.record-track-gain .level-readout, .record-track-gain .level-editor { min-width: 65px; }
 .rehearsal-recording-row > select { min-width: 0; height: 32px; padding: 0 7px; border: 1px solid var(--border); border-radius: 7px; background: #f8f4ed; font-size: 9px; }
 .rehearsal-arm { height: 32px; display: flex; align-items: center; justify-content: center; gap: 5px; color: white; border-radius: 17px; background: #a8463e; font-size: 9px; }.rehearsal-arm-status { color: #a34a41; text-align: center; font-size: 9px; }
 .record-take-details { grid-column: 2 / -1; min-height: 34px; display: flex; align-items: center; gap: 6px; padding-top: 7px; border-top: 1px solid var(--border-soft); }.record-take-details audio { width: 225px; height: 28px; }.record-take-details > button { height: 27px; padding: 0 8px; display: grid; place-items: center; border-radius: 5px; color: #6f655a; background: #ebe4da; }.record-take-details > label { display: flex; align-items: center; gap: 4px; color: #81766b; font-size: 8px; }.record-take-details > label input { width: 62px; height: 27px; padding: 0 5px; border: 1px solid var(--border); border-radius: 5px; background: #faf7f2; }

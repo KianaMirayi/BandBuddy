@@ -58,6 +58,7 @@ export function Waveform({
   const scrollRef = useRef(scroll)
   const onViewChangeRef = useRef(onViewChange)
   const [loadFailed, setLoadFailed] = useState(false)
+  const appliedHeight = useRef(0)
 
   zoomRef.current = zoom
   scrollRef.current = scroll
@@ -156,6 +157,22 @@ export function Waveform({
     return () => viewport.removeEventListener('wheel', handleWheel)
   }, [disabled])
 
+  // Keeps the waveform's time axis equal to the container width. The playhead is placed as a
+  // percentage of the container, so a pxPerSec left over from an older width misplaces it.
+  const syncSize = useCallback((): void => {
+    const instance = wave.current
+    const viewport = container.current
+    if (!instance || !viewport || durationMs <= 0) return
+    const height = Math.max(1, viewport.clientHeight)
+    if (appliedHeight.current !== height) {
+      appliedHeight.current = height
+      instance.setOptions({ height })
+    }
+    instance.zoom(Math.max(1, viewport.clientWidth * zoom / (durationMs / 1000)))
+    const visibleStart = clamp(scrollRef.current, 0, 1) * Math.max(0, 1 - 1 / zoom)
+    instance.setScrollTime(visibleStart * durationMs / 1000)
+  }, [durationMs, zoom])
+
   useEffect(() => {
     if (!container.current || !peaksUrl || durationMs <= 0) return
     let cancelled = false
@@ -196,19 +213,13 @@ export function Waveform({
   }, [peaksUrl, durationMs, color])
 
   useEffect(() => {
-    if (!wave.current || !container.current || durationMs <= 0) return
-    const syncSize = (): void => {
-      if (!wave.current || !container.current) return
-      wave.current.setOptions({ height: Math.max(1, container.current.clientHeight) })
-      wave.current.zoom(Math.max(1, container.current.clientWidth * zoom / (durationMs / 1000)))
-      const visibleStart = clamp(scrollRef.current, 0, 1) * Math.max(0, 1 - 1 / zoomRef.current)
-      wave.current.setScrollTime(visibleStart * durationMs / 1000)
-    }
+    const viewport = container.current
+    if (!viewport) return
     syncSize()
     const observer = new ResizeObserver(syncSize)
-    observer.observe(container.current)
+    observer.observe(viewport)
     return () => observer.disconnect()
-  }, [durationMs, zoom])
+  }, [syncSize])
 
   useEffect(() => {
     drawLiveWaveform()

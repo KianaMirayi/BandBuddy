@@ -61,11 +61,17 @@ describe('PracticeRoom output routing', () => {
     />)
 
     const vocalsOutput = screen.getByRole('combobox', { name: '人声输出通道' })
-    expect(vocalsOutput.querySelectorAll('option')).toHaveLength(6)
+    expect(vocalsOutput.textContent).toContain('1–2')
     expect(screen.getByText('多通道输出已启用 · 节拍器与录音预听固定到 1–2')).toBeTruthy()
 
-    fireEvent.change(vocalsOutput, { target: { value: '5' } })
+    fireEvent.click(vocalsOutput)
+    expect(screen.getAllByRole('option').map((option) => option.textContent))
+      .toEqual(['1–2', '3–4', '5–6', '7–8', '9–10', '11–12'])
+
+    fireEvent.click(screen.getByRole('option', { name: '5–6' }))
     expect(onTrack).toHaveBeenCalledWith('vocals', { outputChannelPair: 5 })
+    // Choosing a pair closes the menu.
+    expect(screen.queryAllByRole('option')).toHaveLength(0)
   })
 
   it('disables guitar mode with a hover explanation, then shows an anchored completion notice', () => {
@@ -82,5 +88,29 @@ describe('PracticeRoom output routing', () => {
     expect(screen.getByRole('status').textContent).toContain('吉他分轨已完成')
     fireEvent.click(screen.getByRole('button', { name: '关闭吉他分轨完成提示' }))
     expect(dismiss).toHaveBeenCalledOnce()
+  })
+
+  it('shows the muted style on tracks silenced by another track solo without writing mix state', () => {
+    const song = fixtureDetail(fixtureSongs[0]!)
+    const { rerender } = render(<PracticeRoom {...practiceRoomProps(song)} />)
+    const mButtons = (): HTMLElement[] => screen.getAllByRole('button', { name: 'M' })
+    const styled = (className: string): HTMLElement[] =>
+      mButtons().filter((button) => button.classList.contains(className))
+
+    expect(styled('is-implied-muted')).toHaveLength(0)
+    expect(styled('active')).toHaveLength(0)
+
+    for (const track of song.practice.tracks) {
+      if (track.stemType === 'vocals') track.solo = true
+    }
+    rerender(<PracticeRoom {...practiceRoomProps(song)} />)
+
+    // Every track except the soloed one looks muted.
+    expect(styled('is-implied-muted')).toHaveLength(mButtons().length - 1)
+    // The highlight is presentational: nothing is actually muted.
+    expect(styled('active')).toHaveLength(0)
+    let muted = 0
+    for (const track of song.practice.tracks) if (track.muted) muted += 1
+    expect(muted).toBe(0)
   })
 })

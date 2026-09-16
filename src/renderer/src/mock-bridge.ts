@@ -179,7 +179,7 @@ export function installFixtureBridge(): void {
       onMeter: noop
     },
     desktopLyrics: { setVisible: async () => undefined, update: () => undefined },
-    window: { minimize: async () => undefined, toggleMaximize: async () => false, close: async () => undefined, onHidden: noop }
+    window: { minimize: async () => undefined, toggleMaximize: async () => false, isMaximized: async () => false, close: async () => undefined, onHidden: noop, onMaximizedChange: noop }
   }
   window.bandbuddy = api
 }

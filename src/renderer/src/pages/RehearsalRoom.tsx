@@ -50,7 +50,8 @@ import {
 } from '@shared/rehearsal.js'
 import { RehearsalAudioEngine } from '../rehearsal-audio-engine.js'
 import { fixtureDetail, fixtureSongs } from '../fixtures.js'
-import { clamp, formatTime, gainLabel, isCancellationError, toUserErrorMessage } from '../utils.js'
+import { LevelInput, MAX_GAIN_DB, MIN_GAIN_DB } from '../components/LevelInput.js'
+import { clamp, formatTime, isCancellationError, isImpliedMuted, isSilenced, silenceToggle, toUserErrorMessage } from '../utils.js'
 
 const fixtureMode = import.meta.env.DEV && new URLSearchParams(location.search).has('fixtures')
 
@@ -850,6 +851,11 @@ export function RehearsalRoom({
       ? '空白衔接'
       : `${position.segment.title}${position.segment.kind === 'countIn' ? ' · 预备拍' : ''}`
     : rehearsal.items.length ? '准备开始' : '编排单为空'
+  // Only recording rows here, so only the recording half of hasSolo applies.
+  const recordingSoloActive = rehearsal.recordingTracks.some((track) => {
+    const take = rehearsal.recordingTakes.find((candidate) => candidate.id === track.activeTakeId)
+    return track.solo && !track.muted && take?.timelineFingerprint === timeline.fingerprint
+  })
 
   return <>
     <main ref={page} className={`page rehearsal-page ${recordingActive ? 'is-recording' : ''}`}>
@@ -1087,6 +1093,7 @@ export function RehearsalRoom({
                   timelineFingerprint={timeline.fingerprint}
                   state={recordingState}
                   meter={recordingMeter}
+                  soloActive={recordingSoloActive}
                   locked={recordingActive}
                   canRecord={timeline.segments.length > 0 && timeline.unavailableItemIds.length === 0}
                   onRecord={() => void startRecording(track.id)}
@@ -1246,6 +1253,7 @@ function RehearsalRecordingRow({
   timelineFingerprint,
   state,
   meter,
+  soloActive,
   locked,
   canRecord,
   onRecord,
@@ -1260,6 +1268,7 @@ function RehearsalRecordingRow({
   timelineFingerprint: string
   state: RehearsalRecordingState
   meter: RecordingMeter
+  soloActive: boolean
   locked: boolean
   canRecord: boolean
   onRecord(): void
@@ -1292,13 +1301,13 @@ function RehearsalRecordingRow({
       }}
     />
     <span className="record-track-ms">
-      <button className={track.muted ? 'active' : ''} disabled={locked || !activeTake} onClick={() => onTrack({ muted: !track.muted, ...(!track.muted ? { solo: false } : {}) })}>M</button>
+      <button className={isSilenced(track) ? 'active' : isImpliedMuted(track, soloActive && Boolean(activeTake)) ? 'is-implied-muted' : ''} disabled={locked || !activeTake} onClick={() => onTrack({ ...silenceToggle(track), ...(isSilenced(track) ? {} : { solo: false }) })}>M</button>
       <button className={track.solo ? 'active' : ''} disabled={locked || !activeTake} onClick={() => onTrack({ solo: !track.solo, ...(!track.solo ? { muted: false } : {}) })}>S</button>
     </span>
-    <label className="record-track-gain">
-      <input type="range" min="-60" max="6" step=".5" value={track.gainDb} disabled={locked || !activeTake} onChange={(event) => onTrack({ gainDb: Number(event.target.value) })} />
-      <small>{gainLabel(track.gainDb)}</small>
-    </label>
+    <span className="record-track-gain">
+      <input type="range" min={MIN_GAIN_DB} max={MAX_GAIN_DB} step=".5" value={track.gainDb} disabled={locked || !activeTake} aria-label={`${track.name || '录音轨'}电平滑块`} onChange={(event) => onTrack({ gainDb: Number(event.target.value) })} />
+      <LevelInput label={`${track.name || '录音轨'}电平`} value={track.gainDb} disabled={locked || !activeTake} onChange={(gainDb) => onTrack({ gainDb })} />
+    </span>
     <select value={activeTake?.id ?? ''} disabled={locked || takes.length === 0} onChange={(event) => onSelectTake(event.target.value || null)}>
       <option value="">无活动 Take</option>
       {takes.map((take) => <option key={take.id} value={take.id}>{take.name}{take.timelineFingerprint === timelineFingerprint ? '' : ' · 旧版本'}</option>)}

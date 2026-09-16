@@ -26,6 +26,7 @@ import { RehearsalRecordingService } from './rehearsal-recording.js'
 import { DesktopLyricsWindow } from './desktop-lyrics.js'
 import { RuntimeManager } from './runtime.js'
 import { isTrustedRendererUrl } from './security.js'
+import { WindowState, type WindowSize } from './window-state.js'
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'bandbuddy-media',
@@ -53,6 +54,10 @@ let rehearsalRecording: RehearsalRecordingService | null = null
 let desktopLyrics: DesktopLyricsWindow | null = null
 let quitAfterRecording = false
 let applicationIcon: NativeImage | null = null
+let windowState: WindowState | null = null
+
+const MIN_WINDOW_SIZE = { width: 1180, height: 760 }
+const DEFAULT_WINDOW_SIZE: WindowSize = { width: 1440, height: 960, maximized: false }
 
 function getApplicationIcon(): NativeImage {
   if (applicationIcon) return applicationIcon
@@ -66,11 +71,14 @@ function emit(channel: string, payload?: unknown): void {
 }
 
 function createWindow(paths: AppPaths): BrowserWindow {
+  const state = new WindowState(join(paths.localRoot, 'window-state.json'), MIN_WINDOW_SIZE)
+  windowState = state
+  const restored = state.restore(DEFAULT_WINDOW_SIZE)
   const window = new BrowserWindow({
-    width: 1440,
-    height: 960,
-    minWidth: 1180,
-    minHeight: 760,
+    width: restored.width,
+    height: restored.height,
+    minWidth: MIN_WINDOW_SIZE.width,
+    minHeight: MIN_WINDOW_SIZE.height,
     show: false,
     frame: false,
     backgroundColor: '#F5F1EA',
@@ -102,8 +110,14 @@ function createWindow(paths: AppPaths): BrowserWindow {
     logger?.capture('error', 'renderer process exited', details)
   })
   window.webContents.on('unresponsive', () => logger?.capture('warn', 'renderer became unresponsive'))
-  window.once('ready-to-show', () => window.show())
+  state.track(window)
+  window.once('ready-to-show', () => {
+    if (restored.maximized) window.maximize()
+    window.show()
+  })
   window.on('hide', () => emit(IPC.eventWindowHidden))
+  window.on('maximize', () => emit(IPC.eventWindowMaximizedChanged, true))
+  window.on('unmaximize', () => emit(IPC.eventWindowMaximizedChanged, false))
   window.on('close', (event) => {
     if (quitting) return
     if (recording?.isActive() || rehearsalRecording?.isActive()) {
@@ -284,6 +298,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
+  windowState?.flush()
   desktopLyrics?.destroy()
   if (!quitAfterRecording && (recording?.isActive() || rehearsalRecording?.isActive())) {
     event.preventDefault()
