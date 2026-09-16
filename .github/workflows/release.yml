@@ -101,7 +101,7 @@ jobs:
           $version = $tag.TrimStart('v')
           $assets = @(Get-ChildItem "$env:PACKAGE_DIR/BandBuddy-*.exe" | Sort-Object Name | ForEach-Object FullName)
           $assets += (Resolve-Path "$env:PACKAGE_DIR/SHA256SUMS.txt").Path
-          $notes = "Windows 10/11 x64 · $env:SIGNING_STATE.`nmacOS Apple Silicon · unsigned and not notarized.`n`n请使用随附的 SHA-256 文件校验下载；macOS 构建会在 Windows Release 创建后自动附加。"
+          $notes = "Windows 10/11 x64 · $env:SIGNING_STATE.`nmacOS Apple Silicon · Developer ID signed, not notarized.`n`n请使用随附的 SHA-256 文件校验下载；macOS 构建会在 Windows Release 创建后自动附加。"
           $versionNotes = "docs/release-notes/$tag.md"
           $notesFile = Join-Path $env:RUNNER_TEMP "BandBuddy-$tag-release-notes.md"
 
@@ -171,10 +171,14 @@ jobs:
           pnpm test:guitar-hq
           pnpm test
 
-      - name: Package unsigned macOS release
+      - name: Package and verify signed macOS release
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: pnpm package:mac
+          CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
+        run: |
+          test -n "$CSC_LINK" || { echo "MACOS_CSC_LINK is required for a signed release"; exit 1; }
+          test -n "$CSC_KEY_PASSWORD" || { echo "MACOS_CSC_KEY_PASSWORD is required for a signed release"; exit 1; }
+          pnpm package:mac
 
       - name: Verify package and generate checksum
         shell: bash
@@ -203,5 +207,6 @@ jobs:
             release-macos/BandBuddy-*-macos-arm64.dmg
             release-macos/BandBuddy-*-macos-arm64.zip
             release-macos/SHA256SUMS-macos-arm64.txt
+            release-macos/SIGNATURE-REPORT.json
           )
           gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"

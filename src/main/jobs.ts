@@ -145,6 +145,11 @@ export class JobScheduler {
         const video = await this.media.prepareVideo(source, taskRoot, path.join(songRoot, 'source'), signal)
         this.database.setVideoRelative(songId, this.paths.toLibraryRelative(settings.libraryRoot, video))
       }
+    } else {
+      this.database.setJobState(jobId, 'preparing', '正在解码音频', 0.01)
+      this.changed()
+      separationSource = path.join(taskRoot, 'source-audio.wav')
+      await this.media.decodeAudio(source, path.join(taskRoot, 'source-audio.part.wav'), separationSource, signal)
     }
     if (signal.aborted) throw new Error('JOB_CANCELLED')
     const preparationProgress = videoSource ? 0.12 : 0.01
@@ -216,6 +221,11 @@ export class JobScheduler {
       this.changed()
       separationSource = path.join(taskRoot, 'video-audio.wav')
       await this.media.extractVideoAudio(source, path.join(taskRoot, 'video-audio.part.wav'), separationSource, signal)
+    } else {
+      this.database.setJobState(jobId, 'preparing', '正在解码音频', 0.01)
+      this.changed()
+      separationSource = path.join(taskRoot, 'source-audio.wav')
+      await this.media.decodeAudio(source, path.join(taskRoot, 'source-audio.part.wav'), separationSource, signal)
     }
     if (signal.aborted) throw new Error('JOB_CANCELLED')
     const preparationProgress = videoSource ? 0.08 : 0.01

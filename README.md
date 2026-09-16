@@ -95,7 +95,9 @@ BandBuddy 把一次有效练习整理成一条很短的路径：**选歌 → 分
 
 ### 管理自己的练习曲库
 
-- 导入 `MP3 / WAV / FLAC / M4A / AAC`，并兼容用户有权使用的本地 `.ncm` 文件。
+- 导入音频 `MP3 / WAV / FLAC / M4A / AAC / OGG / OGA / OPUS / AIF / AIFF / WMA / M4B / APE / WV / MP2 / AC3 / CAF`，并兼容用户有权使用的本地 `.ncm` 文件。
+- 导入带音轨的视频 `MP4 / M4V / MOV / MKV / WebM / AVI / WMV / FLV / MPG / MPEG / TS / MTS / M2TS / VOB / 3GP / 3G2 / OGV / ASF`；具体编码须受内置 FFmpeg 支持，不支持 DRM 加密媒体。
+- 基础分轨和吉他细分均先用 FFmpeg 解码为 44.1 kHz 双声道浮点 WAV，保留原文件；视频额外保留音画时间对齐。
 - 搜索歌曲或艺术家，按收藏、处理中、最近练习筛选，并在列表/卡片布局间切换。
 - 后台任务展示分轨和导出进度；支持取消、重试，以及显存不足后使用相同质量参数的 CPU 重试。
 - 可从曲库或练习室编辑标题、艺术家、BPM、歌曲调与拍号；歌曲调既可本地识别，也可手动纠正。
@@ -213,17 +215,29 @@ pnpm package:store     # Microsoft Store AppX：release-store
 ### 构建 macOS 包
 
 ```bash
-pnpm package:mac:dir  # 当前架构的未签名 .app 目录
-pnpm package:mac      # 当前架构的未签名 DMG + ZIP
+pnpm package:mac:dir        # 强制 Developer ID 签名并验证 .app
+pnpm package:mac            # 强制签名、验证 DMG + ZIP：release-macos
+pnpm package:mac:notarized  # 签名 + Apple 公证 + 票据及 Gatekeeper 验证
+pnpm verify:mac:signatures  # 重新验证 release-macos 的签名、安装包与独立启动
+pnpm package:mac:unsigned   # 仅供无证书 CI / 开发测试：release-macos-unsigned
 ```
 
-macOS 包必须在对应架构的 Mac 上构建，以便 Electron、`better-sqlite3`、uv 和 FFmpeg 保持同一架构。
+默认构建 Apple Silicon（arm64）包；必须在对应架构的 Mac 上构建，以便 Electron、`better-sqlite3`、uv 和 FFmpeg 保持同一架构。
+
+签名是默认打包的必经步骤：使用钥匙串中团队 `M6M993UYR9` 的有效 Developer ID Application 证书，或通过 `CSC_LINK` / `CSC_KEY_PASSWORD` 提供该团队的 P12。脚本使用证书指纹，避免同名证书歧义；可用 `BANDBUDDY_MAC_SIGN_IDENTITY` 明确指定指纹。缺少证书、任何签名/校验失败都会终止构建，不自动降级为未签名包。
+
+脚本按文件头扫描包内所有 Mach-O，包括主程序、Electron Helper / Framework / 动态库、crashpad、SQLite `.node`、uv、ffmpeg、ffprobe 和原生 audio-host，先签内部代码再签外层容器，启用安全时间戳和 Hardened Runtime。Python、JSON、语言资源等由 App 资源封印保护，不逐个当作可执行文件签名。新增内嵌原生依赖会自动纳入扫描与逐项验证。签名时遵循 [Apple 的嵌套代码签名流程](https://developer.apple.com/documentation/xcode/creating-distribution-signed-code-for-the-mac/)。
+
+打包后自动检查 DMG 自身签名、DMG 镜像完整性、DMG/ZIP 内完整应用签名及发布者，并从独立临时目录启动解压后的应用，确认 FFmpeg 不依赖源码目录。生成 `SIGNATURE-REPORT.json` 与 `SHA256SUMS-macos-arm64.txt`。构建前仍用上游固定 SHA-256 校验工具原件；运行时只有完整 App 的资源封印及指定发布者签名验证通过，才接受签名导致的内嵌工具哈希变化。
+
+默认签名包不等同于 Apple 公证。`package:mac:notarized` 额外要求 `APPLE_KEYCHAIN_PROFILE`（可选 `APPLE_KEYCHAIN`），或 `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID`，或 `APPLE_API_KEY` / `APPLE_API_KEY_ID` / `APPLE_API_ISSUER`。公证票据或 Gatekeeper 检查未通过，构建同样失败。安装时下载到用户数据目录的 Python 及依赖不属于 App 包内签名清单。
 
 ## CI 与 Release
 
 - [Windows CI](./.github/workflows/windows.yml) 在 `main`、Pull Request 和手动运行时执行资源校验、类型检查、测试与未签名 Electron 打包，并保存构建产物。
-- [macOS CI](./.github/workflows/macos.yml) 使用 Apple Silicon 原生 runner，验证包内 uv / FFmpeg 与 HQ6 模块后保存 DMG、ZIP 与 SHA-256 文件。
+- [macOS CI](./.github/workflows/macos.yml) 使用 Apple Silicon 原生 runner，通过明确的 `package:mac:unsigned` 命令生成无证书测试产物，名称和输出目录标记为 unsigned。
 - [Release workflow](./.github/workflows/release.yml) 在推送与 `package.json` 版本一致的 `v*` 标签时自动打包 Windows x64 与 macOS arm64，生成 SHA-256 校验文件并创建 GitHub Release。
+- macOS Release 必须配置 `MACOS_CSC_LINK` 和 `MACOS_CSC_KEY_PASSWORD`，强制执行签名与安装包验证；缺少凭据会失败，不再发布未签名 macOS Release。
 - 如果仓库配置了 `WINDOWS_CSC_LINK` 和 `WINDOWS_CSC_KEY_PASSWORD`，Release workflow 会生成并验证签名包；否则会明确发布未签名社区构建。
 
 ## 项目结构

@@ -50,7 +50,10 @@
     "package:store": "pnpm native:audio && pnpm build && electron-builder --config electron-builder.store.cjs --win appx --x64",
     "package": "pnpm native:audio && pnpm build && electron-builder --win nsis portable --x64 && pnpm verify:signatures",
     "verify:signatures": "powershell -NoProfile -NonInteractive -File scripts/verify-windows-signatures.ps1",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "package:mac:unsigned": "pnpm native:audio && pnpm build && electron-builder --config electron-builder.macos-unsigned.yml --mac dmg zip --arm64",
+    "package:mac:notarized": "pnpm native:audio && pnpm build && electron-builder --config electron-builder.macos.yml --mac dmg zip --arm64 -c.mac.notarize=true",
+    "verify:mac:signatures": "node scripts/verify-macos-release.cjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "1.1.19",

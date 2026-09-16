@@ -1,7 +1,13 @@
 extends: ./electron-builder.yml
-forceCodeSigning: false
+forceCodeSigning: true
 directories:
   output: release-macos
 mac:
-  identity: null
-  hardenedRuntime: false
+  type: distribution
+  identity: Jie Zhao (M6M993UYR9)
+  hardenedRuntime: true
+  sign: scripts/sign-macos.cjs
+  notarize: false
+dmg:
+  sign: true
+afterAllArtifactBuild: scripts/verify-macos-release.cjs

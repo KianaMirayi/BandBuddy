@@ -77,6 +77,12 @@ else()
   FetchContent_MakeAvailable(rtaudio nlohmann_json)
 endif()
 
+if(APPLE)
+  # RtAudio's CoreAudio backend otherwise converts device names using the
+  # system encoding, which is not necessarily UTF-8 as required by JSON.
+  target_compile_definitions(rtaudio PRIVATE UNICODE _UNICODE)
+endif()
+
 add_executable(bandbuddy-audio-host src/main.cpp)
 target_link_libraries(bandbuddy-audio-host PRIVATE rtaudio nlohmann_json::nlohmann_json signalsmith-stretch)
 target_compile_definitions(bandbuddy-audio-host PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)

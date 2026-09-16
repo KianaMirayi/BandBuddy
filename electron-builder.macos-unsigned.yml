@@ -1,0 +1,10 @@
+extends: ./electron-builder.yml
+forceCodeSigning: false
+directories:
+  output: release-macos-unsigned
+mac:
+  identity: null
+  hardenedRuntime: false
+  notarize: false
+dmg:
+  sign: false
