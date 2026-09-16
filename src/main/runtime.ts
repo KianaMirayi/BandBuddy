@@ -18,6 +18,7 @@ import {
   selectOnnxRuntimeVariant
 } from './runtime-dependencies.js'
 import { currentToolTarget, toolFile } from './platform-tools.js'
+import { isTrustedMacBundle } from './macos-bundle-integrity.js'
 import {
   VC_RUNTIME_DOWNLOAD_URL,
   detectWindowsVcRuntime,
@@ -481,8 +482,14 @@ export class RuntimeManager {
   private async ensureUv(signal: AbortSignal): Promise<string> {
     const packaged = this.paths.packagedResource('bin', UV_FILE.output)
     if (existsSync(packaged)) {
-      if (await this.fileSha256(packaged) !== UV_BINARY_SHA256) throw new Error('UV_HASH_MISMATCH')
-      return packaged
+      const actualSha256 = await this.fileSha256(packaged)
+      if (actualSha256 === UV_BINARY_SHA256) return packaged
+      if (isTrustedMacBundle(this.paths.packagedResource())) return packaged
+      // Distribution signing changes the binary bytes. Never execute an
+      // unverified bundled tool: use the pinned, verified cache/download below.
+      this.logger.warn('packaged uv checksum differs; using verified standalone uv', {
+        expectedSha256: UV_BINARY_SHA256, actualSha256
+      })
     }
     const destinationRoot = path.join(this.paths.toolsRoot, 'uv')
     const destination = path.join(destinationRoot, UV_FILE.output)
@@ -516,7 +523,10 @@ export class RuntimeManager {
     await writeFile(destination, binary)
     if (process.platform !== 'win32') await chmod(destination, 0o755)
     if (!existsSync(destination)) throw new Error('UV_EXTRACT_FAILED')
-    if (await this.fileSha256(destination) !== UV_BINARY_SHA256) throw new Error('UV_HASH_MISMATCH')
+    if (await this.fileSha256(destination) !== UV_BINARY_SHA256) {
+      await rm(destination, { force: true })
+      throw new Error('UV_HASH_MISMATCH')
+    }
     return destination
   }
 

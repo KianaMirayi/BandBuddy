@@ -15,6 +15,7 @@ import type { Logger } from './logger.js'
 import { mediaResponseHeaders, parseByteRange } from './media-range.js'
 import { decodeNcmFile } from './ncm.js'
 import { currentToolTarget, toolFile } from './platform-tools.js'
+import { isTrustedMacBundle } from './macos-bundle-integrity.js'
 
 export interface AudioProbe {
   durationMs: number
@@ -71,6 +72,9 @@ export class MediaService {
         return createHash('sha256').update(readFileSync(file)).digest('hex') === expected
       })
       if (valid) return root
+      if (root === this.paths.packagedResource('bin')
+        && Object.keys(FFMPEG_FILE_HASHES).every(name => existsSync(path.join(root, name)))
+        && isTrustedMacBundle(path.dirname(root))) return root
     }
     return null
   }
@@ -121,6 +125,27 @@ export class MediaService {
     }
   }
 
+  async decodeAudio(input: string, temporaryOutput: string, finalOutput: string, signal: AbortSignal): Promise<void> {
+    const ffmpeg = this.tool('ffmpeg')
+    if (!ffmpeg) throw new Error('FFMPEG_MISSING')
+    if (signal.aborted) throw new Error('JOB_CANCELLED')
+    mkdirSync(path.dirname(temporaryOutput), { recursive: true })
+    try {
+      // Decode every input format before Python inference. Float PCM preserves
+      // decoded peaks above 0 dBFS and avoids an intermediate lossy encoding.
+      const result = await runProcess(ffmpeg, [
+        '-y', '-v', 'error', '-i', input, '-map', '0:a:0', '-vn', '-sn', '-dn',
+        '-map_metadata', '-1', '-ar', '44100', '-ac', '2', '-c:a', 'pcm_f32le',
+        '-f', 'wav', temporaryOutput
+      ], { signal })
+      if (signal.aborted) throw new Error('JOB_CANCELLED')
+      if (result.code !== 0) throw new Error(`AUDIO_DECODE_FAILED:${result.stderr.slice(-800)}`)
+      await rename(temporaryOutput, finalOutput)
+    } finally {
+      await unlink(temporaryOutput).catch(() => undefined)
+    }
+  }
+
   async extractVideoAudio(input: string, temporaryOutput: string, finalOutput: string, signal: AbortSignal): Promise<void> {
     const ffmpeg = this.tool('ffmpeg')
     if (!ffmpeg) throw new Error('FFMPEG_MISSING')
@@ -136,7 +161,7 @@ export class MediaService {
         '-y', '-v', 'error', '-copyts', '-start_at_zero', '-i', input,
         '-map', '0:a:0', '-vn', '-map_metadata', '-1',
         '-af', `aresample=async=1:first_pts=0,apad=whole_dur=${(probe.durationMs / 1000).toFixed(3)}`,
-        '-t', (probe.durationMs / 1000).toFixed(3), '-ar', '44100', '-ac', '2', '-c:a', 'pcm_s24le', temporaryOutput
+        '-t', (probe.durationMs / 1000).toFixed(3), '-ar', '44100', '-ac', '2', '-c:a', 'pcm_f32le', '-f', 'wav', temporaryOutput
       ], { signal })
       if (signal.aborted) throw new Error('JOB_CANCELLED')
       if (result.code !== 0) throw new Error(`VIDEO_AUDIO_EXTRACTION_FAILED:${result.stderr.slice(-800)}`)

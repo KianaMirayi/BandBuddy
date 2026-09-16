@@ -47,9 +47,15 @@ void storeMaximum(std::atomic<float>& target, float value) {
       && !target.compare_exchange_weak(current, value, std::memory_order_relaxed, std::memory_order_relaxed)) {}
 }
 
+std::string encodeMessage(const json& value) {
+  // Driver-provided text must never prevent an entire RPC response from being
+  // delivered. Preserve valid Unicode and replace malformed byte sequences.
+  return value.dump(-1, ' ', false, json::error_handler_t::replace);
+}
+
 void emit(const json& value) {
   std::lock_guard lock(outputMutex);
-  std::cout << value.dump() << '\n' << std::flush;
+  std::cout << encodeMessage(value) << '\n' << std::flush;
 }
 
 void putU16(std::ostream& out, std::uint16_t value) {
@@ -1345,10 +1351,20 @@ int main(int argc, char** argv) {
     const bool deviceIdentity = firstDeviceId != replacementDeviceId
       && parseDeviceId(firstDeviceId) == 7u && parseDeviceId("asio:7") == 7u
       && !parseDeviceId("asio:not-a-number");
-    const bool ok = countInSilent && channelMapping && xrunCounted && signalsmithPitch && deviceIdentity;
+    const std::string unicodeName = "Apple: 麦克风 🎤";
+    const std::string invalidName = std::string("Microphone: ") + static_cast<char>(0xA1);
+    const auto encodedDevices = json::parse(encodeMessage({{"result", json::array({
+      {{"name", unicodeName}}, {{"name", invalidName}}, {{"name", "USB Audio"}}
+    })}}));
+    const bool deviceNameEncoding = encodedDevices["result"].size() == 3
+      && encodedDevices["result"][0]["name"] == unicodeName
+      && encodedDevices["result"][1]["name"] == "Microphone: \xEF\xBF\xBD"
+      && encodedDevices["result"][2]["name"] == "USB Audio"
+      && json::parse(encodeMessage({{"error", invalidName}}))["error"] == "Microphone: \xEF\xBF\xBD";
+    const bool ok = countInSilent && channelMapping && xrunCounted && signalsmithPitch && deviceIdentity && deviceNameEncoding;
     emit({{"ok", ok}, {"name", "bandbuddy-audio-host"}, {"protocolVersion", 1},
       {"tests", {{"countInDoesNotRecord", countInSilent}, {"channelMapping", channelMapping}, {"xrunCounted", xrunCounted},
-        {"signalsmithPitch", signalsmithPitch}, {"deviceIdentity", deviceIdentity}}}});
+        {"signalsmithPitch", signalsmithPitch}, {"deviceIdentity", deviceIdentity}, {"deviceNameEncoding", deviceNameEncoding}}}});
     return ok ? 0 : 1;
   }
   const bool simulate = argc > 1 && std::string(argv[1]) == "--simulate";

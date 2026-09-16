@@ -63,12 +63,12 @@ jobs:
       - name: Package unsigned macOS builds
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: pnpm package:mac
+        run: pnpm package:mac:unsigned
 
       - name: Verify packaged application and native tools
         shell: bash
         run: |
-          app_path="$(find release-macos -maxdepth 2 -type d -name BandBuddy.app | head -n 1)"
+          app_path="$(find release-macos-unsigned -maxdepth 2 -type d -name BandBuddy.app | head -n 1)"
           test -n "$app_path"
           test -x "$app_path/Contents/MacOS/BandBuddy"
           test -x "$app_path/Contents/Resources/bin/uv"
@@ -86,17 +86,17 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          files=(release-macos/BandBuddy-*-macos-arm64.dmg release-macos/BandBuddy-*-macos-arm64.zip)
+          files=(release-macos-unsigned/BandBuddy-*-macos-arm64.dmg release-macos-unsigned/BandBuddy-*-macos-arm64.zip)
           test "${#files[@]}" -eq 2
-          shasum -a 256 "${files[@]}" | sed 's#release-macos/##' > "release-macos/SHA256SUMS-macos-arm64.txt"
+          shasum -a 256 "${files[@]}" | sed 's#release-macos-unsigned/##' > "release-macos-unsigned/SHA256SUMS-macos-arm64.txt"
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: BandBuddy-macos-arm64-${{ github.sha }}
+          name: BandBuddy-macos-unsigned-arm64-${{ github.sha }}
           path: |
-            release-macos/BandBuddy-*-macos-arm64.dmg
-            release-macos/BandBuddy-*-macos-arm64.zip
-            release-macos/SHA256SUMS-macos-arm64.txt
+            release-macos-unsigned/BandBuddy-*-macos-arm64.dmg
+            release-macos-unsigned/BandBuddy-*-macos-arm64.zip
+            release-macos-unsigned/SHA256SUMS-macos-arm64.txt
           if-no-files-found: error
           retention-days: 14

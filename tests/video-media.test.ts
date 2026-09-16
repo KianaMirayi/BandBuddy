@@ -101,6 +101,106 @@ describe.skipIf(!hasTools)('real local video preprocessing and library lifecycle
     database.deleteSongRecord(imported.songId!)
   }, 15_000)
 
+  it.each([
+    ['mp3', 'libmp3lame'], ['wav', 'pcm_s16le'], ['flac', 'flac'],
+    ['m4a', 'aac'], ['aac', 'aac'], ['ogg', 'libvorbis'], ['oga', 'libvorbis'],
+    ['opus', 'libopus'], ['aif', 'pcm_s16be'], ['aiff', 'pcm_s16be'],
+    ['wma', 'wmav2'], ['m4b', 'aac'], ['wv', 'wavpack'], ['mp2', 'mp2'],
+    ['ac3', 'ac3'], ['caf', 'pcm_s16le'], ['m4a', 'alac']
+  ])('decodes %s (%s) into float WAV for inference', async (extension, codec) => {
+    const input = path.join(root, `format-${codec}.${extension.toUpperCase()}`)
+    const generated = await runProcess(media.tool('ffmpeg')!, [
+      '-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=880:sample_rate=48000:duration=0.3',
+      '-c:a', codec, input
+    ])
+    expect(generated.code, generated.stderr).toBe(0)
+    expect(SOURCE_MEDIA_EXTENSIONS.has(`.${extension}`)).toBe(true)
+    const output = path.join(root, `${extension}-${codec}.wav`)
+    await media.decodeAudio(input, `${output}.part`, output, new AbortController().signal)
+    const inspected = await runProcess(media.tool('ffprobe')!, [
+      '-v', 'error', '-show_streams', '-of', 'json', output
+    ])
+    expect(JSON.parse(inspected.stdout).streams).toMatchObject([
+      { codec_name: 'pcm_f32le', sample_rate: '44100', channels: 2 }
+    ])
+    expect((await media.probe(output)).durationMs).toBeGreaterThanOrEqual(280)
+    expect(existsSync(`${output}.part`)).toBe(false)
+  })
+
+  it.each([
+    ['mp4', 'mpeg4', 'aac'], ['m4v', 'mpeg4', 'aac'], ['mov', 'mpeg4', 'aac'],
+    ['mkv', 'mpeg4', 'aac'], ['webm', 'libvpx', 'libopus'], ['avi', 'mpeg4', 'mp3'],
+    ['wmv', 'wmv2', 'wmav2'], ['asf', 'wmv2', 'wmav2'], ['flv', 'flv', 'mp3'],
+    ['mpg', 'mpeg2video', 'mp2'], ['mpeg', 'mpeg2video', 'mp2'],
+    ['ts', 'mpeg2video', 'mp2'], ['mts', 'mpeg2video', 'mp2'], ['m2ts', 'mpeg2video', 'mp2'],
+    ['vob', 'mpeg2video', 'ac3'], ['3gp', 'mpeg4', 'aac'], ['3g2', 'mpeg4', 'aac'],
+    ['ogv', 'libtheora', 'libvorbis']
+  ])('extracts audio and prepares playback from %s', async (extension, videoCodec, audioCodec) => {
+    const input = path.join(root, `container.${extension}`)
+    const generated = await runProcess(media.tool('ffmpeg')!, [
+      '-y', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=96x64:rate=25:duration=0.4',
+      '-f', 'lavfi', '-i', 'sine=frequency=880:sample_rate=48000:duration=0.4',
+      '-c:v', videoCodec, '-c:a', audioCodec,
+      ...(['mts', 'm2ts'].includes(extension) ? ['-f', 'mpegts'] : []), input
+    ])
+    expect(generated.code, generated.stderr).toBe(0)
+    expect(isVideoSource(input.toUpperCase())).toBe(true)
+    const output = path.join(root, `${extension}-audio.wav`)
+    await media.extractVideoAudio(input, `${output}.part`, output, new AbortController().signal)
+    expect(await media.probe(output)).toMatchObject({ sampleRate: 44100, channels: 2, video: null })
+    const playback = await media.prepareVideo(input, path.join(root, extension, 'tmp'), path.join(root, extension, 'playback'), new AbortController().signal)
+    const inspected = await runProcess(media.tool('ffprobe')!, ['-v', 'error', '-show_streams', '-of', 'json', playback])
+    expect(JSON.parse(inspected.stdout).streams).toMatchObject([{ codec_type: 'video', codec_name: extension === 'webm' ? 'vp8' : 'vp9' }])
+  })
+
+  it('feeds decoded M4A to both separation stages without changing the original', async () => {
+    const input = path.join(root, 'regression.m4a')
+    const generated = await runProcess(media.tool('ffmpeg')!, [
+      '-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=731:sample_rate=48000:duration=0.25', '-c:a', 'aac', input
+    ])
+    expect(generated.code, generated.stderr).toBe(0)
+    const original = await readFile(input)
+    const commands: string[] = []
+    const runtime = {
+      onChange: vi.fn(), getInfo: () => ({ status: 'ready', selectedDevice: 'cpu' }),
+      runWorker: vi.fn(async (args: string[]) => {
+        commands.push(args[0]!)
+        const workerInput = args[args.indexOf('--input') + 1]!
+        expect(workerInput).toMatch(/source-audio\.wav$/)
+        expect(await media.probe(workerInput)).toMatchObject({ format: 'wav', sampleRate: 44100, channels: 2 })
+        const stems = args[0] === 'separate-demucs' ? LEGACY_STEM_ORDER : GUITAR_SPLIT_STEMS
+        return { code: 0, result: {
+          files: Object.fromEntries(stems.map(stem => [stem, workerInput])),
+          stats: Object.fromEntries(stems.map(stem => [stem, { peak: 0.8 }]))
+        } }
+      })
+    }
+    const imports = new ImportService(paths, database, media, runtime as never, logger as never, () => undefined, () => undefined)
+    const imported = await imports.importSource({ filePath: input })
+    const scheduler = new JobScheduler(paths, database, runtime as never, media, logger as never, () => undefined, () => undefined)
+    scheduler.kick()
+    await vi.waitFor(() => expect(database.getSong(imported.songId!)?.guitarSplitStatus).toBe('ready'), { timeout: 15_000, interval: 40 })
+    expect(commands).toEqual(['separate-demucs', 'separate-guitar'])
+    expect(database.getSong(imported.songId!)?.stems).toHaveLength(9)
+    const stored = database.getSongRow(imported.songId!)!
+    expect(await readFile(paths.resolveLibraryPath(database.getSettings().libraryRoot, stored.source_rel_path!))).toEqual(original)
+  }, 20_000)
+
+  it('does not publish corrupt or cancelled audio decoding output', async () => {
+    const corrupt = path.join(root, 'corrupt.m4a')
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(corrupt, 'invalid audio')
+    const temporary = path.join(root, 'bad-audio.part.wav')
+    const output = path.join(root, 'bad-audio.wav')
+    await expect(media.decodeAudio(corrupt, temporary, output, new AbortController().signal)).rejects.toThrow('AUDIO_DECODE_FAILED')
+    expect(existsSync(temporary)).toBe(false)
+    expect(existsSync(output)).toBe(false)
+    const controller = new AbortController()
+    controller.abort()
+    await expect(media.decodeAudio(source, temporary, output, controller.signal)).rejects.toThrow('JOB_CANCELLED')
+    expect(existsSync(output)).toBe(false)
+  })
+
   it('queues a copied video, feeds extracted WAV to separation, and serves seekable muted video', async () => {
     const workerInputs: string[] = []
     let releaseGuitar = (): void => undefined

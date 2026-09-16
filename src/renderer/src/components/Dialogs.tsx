@@ -147,7 +147,7 @@ export function ImportDialog({
           onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = busy ? 'none' : 'copy'; if (!busy) setDragging(true) }}
           onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false) }}
           onDrop={dropSource}>
-          <span>{source ? <Check size={25} /> : <Upload size={25} />}</span><b>{source?.name ?? '选择音频或视频文件'}</b><small>{source ? '点击重新选择，或拖入文件替换' : '可直接拖入文件 · 音频：MP3 / WAV / FLAC / M4A / AAC / NCM · 视频：MP4 / M4V / MOV / MKV / WebM / AVI'}</small>
+          <span>{source ? <Check size={25} /> : <Upload size={25} />}</span><b>{source?.name ?? '选择音频或视频文件'}</b><small>{source ? '点击重新选择，或拖入文件替换' : '可直接拖入文件 · 音频：MP3 / WAV / FLAC / M4A / AAC / OGG / OPUS / AIFF / WMA 等 · 视频：MP4 / MOV / MKV / WebM / AVI / WMV / FLV / TS 等'}</small>
         </div>
         <div className="form-row"><label>歌曲标题<input maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="可选，默认使用文件名" /></label><label>艺术家<input maxLength={200} value={artist} onChange={(event) => setArtist(event.target.value)} placeholder="可选" /></label></div>
         {duplicate && <div className="inline-warning"><AlertTriangle /><span><b>曲库已有“{duplicate.title}”</b><small>可打开已有歌曲，或仍然创建一份副本。</small></span><button onClick={() => { onOpenChange(false); onOpenDuplicate(duplicate.id) }}>打开已有</button><button onClick={() => void submit(true)}>仍创建副本</button></div>}
