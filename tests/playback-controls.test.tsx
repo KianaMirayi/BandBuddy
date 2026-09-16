@@ -140,3 +140,21 @@ describe('fullscreen video controls', () => {
     expect(props.onRateChange).toHaveBeenCalledWith(0.8)
   })
 })
+
+it('M shortcut restores a track silenced at the gain floor', async () => {
+  await openPractice()
+  act(() => {
+    usePlayerStore.getState().setSelectedStem('vocals')
+    usePlayerStore.getState().patchTrack('vocals', { gainDb: -60, muted: false })
+  })
+  fireEvent.keyDown(window, { key: 'm', code: 'KeyM' })
+  expect(usePlayerStore.getState().practice!.tracks.find(t => t.stemType === 'vocals')).toMatchObject({ gainDb: 0, muted: false })
+})
+it('output menu consumes transport keys while choosing a channel', async () => {
+  await openPractice()
+  const menu = screen.getByRole('combobox', { name: '人声输出通道' })
+  fireEvent.click(menu)
+  audio.seek.mockClear()
+  fireEvent.keyDown(menu, { key: 'ArrowRight', code: 'ArrowRight' })
+  expect(audio.seek).not.toHaveBeenCalled()
+})
