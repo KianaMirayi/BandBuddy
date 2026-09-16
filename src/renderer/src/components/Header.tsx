@@ -1,4 +1,5 @@
-import { AudioLines, ClipboardList, Library, ListMusic, Minus, Music2, Settings, Square, X } from 'lucide-react'
+import { AudioLines, ClipboardList, Copy as RestoreIcon, Library, ListMusic, Minus, Music2, Settings, Square, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 export function Header({
   view,
@@ -15,6 +16,15 @@ export function Header({
   onSettings(): void
   locked?: boolean
 }): React.JSX.Element {
+  const [maximized, setMaximized] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    void window.bandbuddy.window.isMaximized().then((value) => { if (active) setMaximized(value) })
+    const unsubscribe = window.bandbuddy.window.onMaximizedChange(setMaximized)
+    return () => { active = false; unsubscribe() }
+  }, [])
+
   return <header className="titlebar">
     <div className="brand no-drag" onClick={() => { if (!locked) onView('library') }} role="button" tabIndex={locked ? -1 : 0}>
       <span className="brand-mark"><AudioLines size={16} /></span>
@@ -31,7 +41,7 @@ export function Header({
       <button className="quiet-button" disabled={locked} onClick={onSettings}><Settings size={18} />设置</button>
       <div className="window-controls">
         <button aria-label="最小化" onClick={() => void window.bandbuddy.window.minimize()}><Minus size={15} /></button>
-        <button aria-label="最大化" onClick={() => void window.bandbuddy.window.toggleMaximize()}><Square size={12} /></button>
+        <button aria-label={maximized ? '还原' : '最大化'} onClick={() => void window.bandbuddy.window.toggleMaximize()}>{maximized ? <RestoreIcon size={12} /> : <Square size={12} />}</button>
         <button className="close" aria-label="关闭" onClick={() => void window.bandbuddy.window.close()}><X size={16} /></button>
       </div>
     </div>

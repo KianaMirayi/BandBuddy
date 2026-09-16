@@ -33,9 +33,11 @@ import {
   type TrackOrderKey,
   type TrackState
 } from '@shared/domain.js'
+import { LevelInput, MAX_GAIN_DB, MIN_GAIN_DB } from '../components/LevelInput.js'
+import { SelectMenu } from '../components/SelectMenu.js'
 import { Waveform } from '../components/Waveform.js'
 import { VideoPlayer } from '../components/VideoPlayer.js'
-import { clamp, gainLabel } from '../utils.js'
+import { clamp, hasEffectiveSolo, isImpliedMuted, isSilenced, silenceToggle } from '../utils.js'
 
 const icons: Record<StemType, typeof Mic2> = {
   vocals: Mic2,
@@ -106,6 +108,14 @@ export function PracticeRoom(props: PracticeRoomProps): React.JSX.Element {
     const stemType = getStemTypeFromTrackOrderKey(key)
     return stemType === null || isStemVisible(stemType, practice.guitarSplitEnabled)
   })
+  // A soloed recording track silences the stems once its active take is loaded
+  // (audio-engine.ts:222,377).
+  const soloActive = hasEffectiveSolo(
+    practice.tracks,
+    practice.guitarSplitEnabled,
+    song.recordingTracks.some((track) => track.solo && !track.muted
+      && song.recordingTakes.some((take) => take.id === track.activeTakeId))
+  )
   const [draggedTrack, setDraggedTrack] = useState<TrackOrderKey | null>(null)
   const [dropTarget, setDropTarget] = useState<{ key: TrackOrderKey; placement: 'before' | 'after' } | null>(null)
   const draggedTrackRef = useRef<TrackOrderKey | null>(null)
@@ -253,6 +263,7 @@ export function PracticeRoom(props: PracticeRoomProps): React.JSX.Element {
                 exists={Boolean(stem)}
                 showWaveform={!song.videoUrl}
                 selected={selectedStem === type}
+                soloActive={soloActive}
                 locked={locked}
                 availableOutputChannelPairs={availableOutputChannelPairs}
                 peaksUrl={stem?.peaksUrl ?? null}
@@ -278,6 +289,7 @@ export function PracticeRoom(props: PracticeRoomProps): React.JSX.Element {
               currentMs={currentMs}
               state={recordingState}
               meter={recordingMeter}
+              soloActive={soloActive}
               locked={locked}
               onRecord={() => onRecord(recordingTrack.id)}
               onStop={onStopRecording}
@@ -362,6 +374,7 @@ interface TrackRowProps extends TrackDragProps {
   exists: boolean
   showWaveform: boolean
   selected: boolean
+  soloActive: boolean
   locked: boolean
   availableOutputChannelPairs: number
   peaksUrl: string | null
@@ -377,7 +390,7 @@ interface TrackRowProps extends TrackDragProps {
 
 function TrackRow(props: TrackRowProps): React.JSX.Element {
   const {
-    type, state, exists, showWaveform, selected, locked, availableOutputChannelPairs,
+    type, state, exists, showWaveform, selected, soloActive, locked, availableOutputChannelPairs,
     peaksUrl, durationMs, currentMs, practice,
     onSeek, onRange, onPatch, onSelected, onViewChange, ...dragProps
   } = props
@@ -399,24 +412,25 @@ function TrackRow(props: TrackRowProps): React.JSX.Element {
       <i><Icon size={22} /></i><b>{STEM_META[type].shortLabel}</b>{!exists && <small>未导入</small>}
     </span>
     <span className="ms-buttons">
-      <button className={state.muted ? 'active' : ''} disabled={!exists || locked} onClick={(event) => { event.stopPropagation(); onPatch({ muted: !state.muted }) }}>M</button>
+      <button className={isSilenced(state) ? 'active' : isImpliedMuted(state, soloActive && exists) ? 'is-implied-muted' : ''} disabled={!exists || locked} onClick={(event) => { event.stopPropagation(); onPatch(silenceToggle(state)) }}>M</button>
       <button className={state.solo ? 'active' : ''} disabled={!exists || locked} onClick={(event) => { event.stopPropagation(); onPatch({ solo: !state.solo }) }}>S</button>
     </span>
     <span className="track-gain">
-      <input disabled={!exists || locked} type="range" min="-60" max="6" step="0.5" value={state.gainDb} onDoubleClick={() => onPatch({ gainDb: 0 })} onChange={(event) => onPatch({ gainDb: Number(event.target.value) })} />
-      <em>{gainLabel(state.gainDb)}</em>
+      <input disabled={!exists || locked} type="range" min={MIN_GAIN_DB} max={MAX_GAIN_DB} step="0.5" value={state.gainDb} aria-label={`${STEM_META[type].label}电平滑块`} onDoubleClick={() => onPatch({ gainDb: 0 })} onChange={(event) => onPatch({ gainDb: Number(event.target.value) })} />
+      <LevelInput label={`${STEM_META[type].label}电平`} value={state.gainDb} disabled={!exists || locked} onChange={(gainDb) => onPatch({ gainDb })} />
     </span>
     <span className="track-output-route" onClick={(event) => event.stopPropagation()}>
       <small>OUT</small>
-      <select
-        aria-label={`${STEM_META[type].label}输出通道`}
-        disabled={!exists || locked}
+      <SelectMenu
+        ariaLabel={`${STEM_META[type].label}输出通道`}
         value={selectedPair}
-        onChange={(event) => onPatch({ outputChannelPair: Number(event.target.value) })}
-      >
-        {!selectedPairAvailable && <option value={selectedPair} disabled>{selectedPair}–{selectedPair + 1}（不可用）</option>}
-        {outputPairs.map((firstChannel) => <option key={firstChannel} value={firstChannel}>{firstChannel}–{firstChannel + 1}</option>)}
-      </select>
+        disabled={!exists || locked}
+        options={[
+          ...(selectedPairAvailable ? [] : [{ value: selectedPair, label: `${selectedPair}–${selectedPair + 1}（不可用）`, disabled: true }]),
+          ...outputPairs.map((firstChannel) => ({ value: firstChannel, label: `${firstChannel}–${firstChannel + 1}` }))
+        ]}
+        onChange={(pair) => onPatch({ outputChannelPair: pair })}
+      />
     </span>
     {showWaveform && <Waveform stemType={type} peaksUrl={peaksUrl} color={STEM_META[type].color} durationMs={durationMs} currentMs={currentMs} loopStartMs={practice.loopStartMs} loopEndMs={practice.loopEndMs} zoom={practice.zoom} scroll={practice.scroll} disabled={!exists || locked} onSeek={onSeek} onRange={onRange} onViewChange={onViewChange} />}
   </SortableTrackRow>
@@ -430,6 +444,7 @@ interface RecordingTrackRowProps extends TrackDragProps {
   currentMs: number
   state: RecordingState
   meter: RecordingMeter
+  soloActive: boolean
   locked: boolean
   onRecord(): void
   onStop(): void
@@ -446,7 +461,7 @@ interface RecordingTrackRowProps extends TrackDragProps {
 
 function RecordingTrackRow(props: RecordingTrackRowProps): React.JSX.Element {
   const {
-    song, recordingTrack: track, takes, practice, currentMs, state, meter, locked, onRecord, onStop, onCancel, onSelectTake,
+    song, recordingTrack: track, takes, practice, currentMs, state, meter, soloActive, locked, onRecord, onStop, onCancel, onSelectTake,
     onUpdateTake, onDeleteTake, onTrack, onUseTakePractice, onSeek, onRange, onViewChange, ...dragProps
   } = props
   const activeTake = takes.find((take) => take.id === track.activeTakeId) ?? null
@@ -481,12 +496,12 @@ function RecordingTrackRow(props: RecordingTrackRowProps): React.JSX.Element {
           : <button className="record-button" aria-label="其他录音轨正在录音" disabled><Circle size={16} /></button>}
     </span>
     <span className="ms-buttons">
-      <button className={track.muted ? 'active' : ''} disabled={locked || !activeTake} onClick={() => onTrack({ muted: !track.muted, ...(!track.muted ? { solo: false } : {}) })}>M</button>
+      <button className={isSilenced(track) ? 'active' : isImpliedMuted(track, soloActive && Boolean(activeTake)) ? 'is-implied-muted' : ''} disabled={locked || !activeTake} onClick={() => onTrack({ ...silenceToggle(track), ...(isSilenced(track) ? {} : { solo: false }) })}>M</button>
       <button className={track.solo ? 'active' : ''} disabled={locked || !activeTake} onClick={() => onTrack({ solo: !track.solo, ...(!track.solo ? { muted: false } : {}) })}>S</button>
     </span>
     <span className="track-gain">
-      <input disabled={locked || !activeTake} type="range" min="-60" max="6" step="0.5" value={track.gainDb} onDoubleClick={() => onTrack({ gainDb: 0 })} onChange={(event) => onTrack({ gainDb: Number(event.target.value) })} />
-      <em>{gainLabel(track.gainDb)}</em>
+      <input disabled={locked || !activeTake} type="range" min={MIN_GAIN_DB} max={MAX_GAIN_DB} step="0.5" value={track.gainDb} aria-label={`${track.name || '录音轨'}电平滑块`} onDoubleClick={() => onTrack({ gainDb: 0 })} onChange={(event) => onTrack({ gainDb: Number(event.target.value) })} />
+      <LevelInput label={`${track.name || '录音轨'}电平`} value={track.gainDb} disabled={locked || !activeTake} onChange={(gainDb) => onTrack({ gainDb })} />
     </span>
     <div className="recording-wave-wrap">
       {!song.videoUrl && <Waveform

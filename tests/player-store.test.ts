@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createDefaultPracticeState } from '../packages/shared/src/domain.js'
 import { fixtureDetail, fixtureSongs } from '../src/renderer/src/fixtures.js'
 import { patchTrackStates, usePlayerStore } from '../src/renderer/src/player-store.js'
+import { hasEffectiveSolo, isImpliedMuted } from '../src/renderer/src/utils.js'
 
 describe('practice track button rules', () => {
   it('keeps Solo exclusive and prevents a track from being both muted and soloed', () => {
@@ -70,5 +71,29 @@ describe('practice track button rules', () => {
     usePlayerStore.getState().patchPractice({ pitchSemitones: input })
     expect(usePlayerStore.getState().practice?.pitchSemitones).toBe(expected)
     usePlayerStore.getState().unload()
+  })
+})
+
+describe('implied mute', () => {
+  it('counts only visible, unmuted solos plus the recording override', () => {
+    const tracks = createDefaultPracticeState('song').tracks
+    expect(hasEffectiveSolo(tracks, false)).toBe(false)
+    expect(hasEffectiveSolo(tracks, false, true)).toBe(true)
+
+    // A soloed guitar alternative is hidden in non-guitar mode, so it silences nothing.
+    tracks.find((track) => track.stemType === 'acoustic_guitar')!.solo = true
+    expect(hasEffectiveSolo(tracks, false)).toBe(false)
+    expect(hasEffectiveSolo(tracks, true)).toBe(true)
+
+    // Muting the soloed track takes it back out of the solo set.
+    tracks.find((track) => track.stemType === 'acoustic_guitar')!.muted = true
+    expect(hasEffectiveSolo(tracks, true)).toBe(false)
+  })
+
+  it('marks only tracks that are neither muted nor soloed', () => {
+    expect(isImpliedMuted({ muted: false, solo: false }, true)).toBe(true)
+    expect(isImpliedMuted({ muted: true, solo: false }, true)).toBe(false)
+    expect(isImpliedMuted({ muted: false, solo: true }, true)).toBe(false)
+    expect(isImpliedMuted({ muted: false, solo: false }, false)).toBe(false)
   })
 })

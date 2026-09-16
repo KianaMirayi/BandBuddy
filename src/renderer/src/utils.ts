@@ -1,3 +1,5 @@
+import { SILENT_GAIN_DB, isStemVisible, type TrackState } from '@shared/domain.js'
+
 export function formatTime(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000))
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
@@ -11,10 +13,13 @@ export function formatDate(value: string | null): string {
   return date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
 }
 
+export function gainPercent(db: number): number {
+  return Math.round(100 * 10 ** (db / 20))
+}
+
 export function gainLabel(db: number): string {
-  if (db <= -60) return '−∞'
-  const percent = Math.round(100 * 10 ** (db / 20))
-  return `${db > 0 ? '+' : ''}${db.toFixed(db % 1 ? 1 : 0)} dB (${percent}%)`
+  if (db <= SILENT_GAIN_DB) return '−∞'
+  return `${db > 0 ? '+' : ''}${db.toFixed(db % 1 ? 1 : 0)} dB (${gainPercent(db)}%)`
 }
 
 export function statusLabel(status: string): string {
@@ -312,4 +317,39 @@ export function toUserErrorMessage(error: unknown, fallback = '操作失败，�
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+/** True when a solo elsewhere silences the other tracks. Mirrors the engine's hasSolo
+    (audio-engine.ts:375-378): visible stems, plus recording tracks whose active take
+    is loaded. */
+export function hasEffectiveSolo(
+  tracks: readonly TrackState[],
+  guitarSplitEnabled: boolean,
+  recordingSoloActive = false
+): boolean {
+  if (recordingSoloActive) return true
+  return tracks.some((track) =>
+    isStemVisible(track.stemType, guitarSplitEnabled) && track.solo && !track.muted
+  )
+}
+
+/** True when a track is silenced by another track's solo rather than by its own mute.
+    Presentational only: it never writes state. */
+export function isImpliedMuted(
+  track: Pick<TrackState, 'muted' | 'solo'>,
+  soloActive: boolean
+): boolean {
+  return soloActive && !track.muted && !track.solo
+}
+
+/** A track is silent when it is muted or its level sits on the silence floor (dbToGain = 0 there). */
+export function isSilenced(track: Pick<TrackState, 'muted' | 'gainDb'>): boolean {
+  return track.muted || track.gainDb <= SILENT_GAIN_DB
+}
+
+/** Mute toggle that understands the silence floor: un-silencing a floored track restores 0 dB,
+    otherwise unmuting would silently do nothing. */
+export function silenceToggle(track: Pick<TrackState, 'muted' | 'gainDb'>): { muted: boolean; gainDb?: number } {
+  if (!isSilenced(track)) return { muted: true }
+  return track.gainDb <= SILENT_GAIN_DB ? { muted: false, gainDb: 0 } : { muted: false }
 }

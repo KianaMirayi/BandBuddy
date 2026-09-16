@@ -29,7 +29,7 @@ import { LibraryPage } from './pages/LibraryPage.js'
 import { PracticeRoom } from './pages/PracticeRoom.js'
 import { RehearsalRoom } from './pages/RehearsalRoom.js'
 import { loadStartupAudioSettings } from './startup-audio-devices.js'
-import { clamp, isCancellationError, toUserErrorMessage } from './utils.js'
+import { clamp, isCancellationError, silenceToggle, toUserErrorMessage } from './utils.js'
 import './playback-media.css'
 
 const previewParams = new URLSearchParams(location.search)
@@ -676,7 +676,7 @@ function useKeyboardShortcuts({
     const listener = (event: KeyboardEvent): void => {
       if (!enabled || !song || !practice || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return
       const target = event.target instanceof HTMLElement ? event.target : null
-      if (target?.matches('input, textarea, select, [contenteditable="true"]') || target?.closest('[data-dialog-open="true"], [role="menu"]')) return
+      if (target?.matches('input, textarea, select, [contenteditable="true"]') || target?.closest('[data-dialog-open="true"], [role="menu"], [role="combobox"], [role="listbox"]')) return
       const selected = practice.tracks.find((track) => track.stemType === selectedStem)
       const stemOrder = normalizeTrackOrder(practice.trackOrder, song.recordingTracks.map((track) => track.id))
         .map(getStemTypeFromTrackOrderKey)
@@ -691,7 +691,7 @@ function useKeyboardShortcuts({
       else if (event.key.toLowerCase() === 'a' && !event.repeat) patchPractice({ loopStartMs: currentMs, loopEndMs: null, loopEnabled: false })
       else if (event.key.toLowerCase() === 'b' && practice.loopStartMs !== null && !practice.loopEnabled && !event.repeat) cycleLoop()
       else if (event.key.toLowerCase() === 'l' && !event.repeat) cycleLoop()
-      else if (event.key.toLowerCase() === 'm' && selected) patchTrack(selectedStem, { muted: !selected.muted })
+      else if (event.key.toLowerCase() === 'm' && selected) patchTrack(selectedStem, silenceToggle(selected))
       else if (event.key.toLowerCase() === 's' && selected) patchTrack(selectedStem, { solo: !selected.solo })
       else if ((event.key === '+' || event.key === '=') && selected) patchTrack(selectedStem, { gainDb: clamp(selected.gainDb + 1, -60, 6) })
       else if (event.key === '-' && selected) patchTrack(selectedStem, { gainDb: clamp(selected.gainDb - 1, -60, 6) })

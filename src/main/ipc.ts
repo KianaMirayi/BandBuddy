@@ -265,6 +265,7 @@ export function registerIpc(services: IpcServices): void {
     else window.maximize()
     return window.isMaximized()
   })
+  handle(IPC.windowIsMaximized, () => services.getWindow()?.isMaximized() ?? false)
   handle(IPC.windowClose, () => services.getWindow()?.close())
 }
 

@@ -139,8 +139,10 @@ export interface BandBuddyApi {
   window: {
     minimize(): Promise<void>
     toggleMaximize(): Promise<boolean>
+    isMaximized(): Promise<boolean>
     close(): Promise<void>
     onHidden(callback: () => void): Unsubscribe
+    onMaximizedChange(callback: (maximized: boolean) => void): Unsubscribe
   }
 }
 

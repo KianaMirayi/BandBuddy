@@ -675,7 +675,10 @@ export function isTrackAudible(
   return !hasSolo || track.solo
 }
 
+/** Levels at or below this are exactly zero: the domain's silence floor. */
+export const SILENT_GAIN_DB = -60
+
 export function dbToGain(db: number): number {
-  if (!Number.isFinite(db) || db <= -60) return 0
+  if (!Number.isFinite(db) || db <= SILENT_GAIN_DB) return 0
   return 10 ** (db / 20)
 }

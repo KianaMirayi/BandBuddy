@@ -105,8 +105,10 @@ const api: BandBuddyApi = {
   window: {
     minimize: () => ipcRenderer.invoke(IPC.windowMinimize),
     toggleMaximize: () => ipcRenderer.invoke(IPC.windowToggleMaximize),
+    isMaximized: () => ipcRenderer.invoke(IPC.windowIsMaximized),
     close: () => ipcRenderer.invoke(IPC.windowClose),
-    onHidden: (callback) => subscribe<void>(IPC.eventWindowHidden, callback)
+    onHidden: (callback) => subscribe<void>(IPC.eventWindowHidden, callback),
+    onMaximizedChange: (callback) => subscribe<boolean>(IPC.eventWindowMaximizedChanged, callback)
   }
 }
 

@@ -64,6 +64,7 @@ export const IPC = {
   desktopLyricsUpdate: 'desktop-lyrics:update',
   windowMinimize: 'window:minimize',
   windowToggleMaximize: 'window:toggle-maximize',
+  windowIsMaximized: 'window:is-maximized',
   windowClose: 'window:close',
   eventLibraryChanged: 'event:library-changed',
   eventGuitarSplitCompleted: 'event:guitar-split-completed',
@@ -77,7 +78,8 @@ export const IPC = {
   eventRehearsalRecordingState: 'event:rehearsal-recording-state',
   eventRehearsalRecordingMeter: 'event:rehearsal-recording-meter',
   eventDesktopLyricsUpdate: 'event:desktop-lyrics-update',
-  eventWindowHidden: 'event:window-hidden'
+  eventWindowHidden: 'event:window-hidden',
+  eventWindowMaximizedChanged: 'event:window-maximized-changed'
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
