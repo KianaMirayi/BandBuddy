@@ -322,7 +322,7 @@ function PracticeFooterControls({
           <button className={`metronome-switch ${practice.metronomeEnabled ? 'active' : ''}`} role="switch" aria-checked={practice.metronomeEnabled} onClick={() => patchPractice({ metronomeEnabled: !practice.metronomeEnabled })}><i /></button>
         </div>
         <div className="metronome-volume-row">
-          <span><b>音量</b><small>独立于轨道电平 · 随主音量</small></span>
+          <span><b>音量</b><small>独立音量 · 不受主音量及静音影响</small></span>
           <LevelInput label="节拍器音量" value={practice.metronomeGainDb} min={-METRONOME_GAIN_LIMIT_DB} max={METRONOME_GAIN_LIMIT_DB} onChange={(metronomeGainDb) => patchPractice({ metronomeGainDb })} />
         </div>
         <input
